@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Tests/Cache
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Project data (不要なら追跡しない)
+data/input/
+data/output/
+
+# Logs
+logs/
+*.log

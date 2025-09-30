@@ -1,0 +1,11 @@
+application_name: Javelin Video Analysis
+version: 1.0
+description: A video analysis program for javelin tracking and visualization.
+input_video_path: data/input/
+output_video_path: data/output/
+default_color_map: viridis
+tracking_algorithm: marker_based
+smoothing_factor: 0.1
+heatmap_resolution: 256
+video_fps: 30
+debug_mode: false

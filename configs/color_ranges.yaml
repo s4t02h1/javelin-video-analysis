@@ -1,0 +1,10 @@
+fixed_color_ranges:
+  low_speed: 
+    min: [0, 0, 255]  # Blue
+    max: [100, 100, 255]  # Light Blue
+  medium_speed: 
+    min: [0, 255, 0]  # Green
+    max: [100, 255, 100]  # Light Green
+  high_speed: 
+    min: [255, 0, 0]  # Red
+    max: [255, 100, 100]  # Light Red

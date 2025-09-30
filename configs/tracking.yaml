@@ -1,0 +1,13 @@
+tracking_algorithm: "marker_based"  # Options: "marker_based", "object_tracking"
+marker_color_range:
+  lower: [0, 100, 100]  # HSV lower bound for marker color
+  upper: [10, 255, 255]  # HSV upper bound for marker color
+object_tracking:
+  algorithm: "CSRT"  # Options: "CSRT", "KALMAN"
+  initial_frame_selection: "manual"  # Options: "manual", "automatic"
+tracking_smoothing:
+  enable: true
+  smoothing_factor: 0.5  # Factor for smoothing the tracking data
+output_settings:
+  save_tracked_video: true
+  output_path: "data/output/tracked_video.mp4"  # Path to save the output video
