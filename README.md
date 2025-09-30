@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Javelin Video Analysis
 
 This project implements a video analysis program focused on javelin performance. It includes features for speed visualization, acceleration heatmaps, and javelin tip tracking using various tracking algorithms.
@@ -73,3 +74,7 @@ Contributions are welcome! Please open an issue or submit a pull request for any
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
+=======
+# javelin-video-analysis
+analysing javelin throw technique
+>>>>>>> origin/main
