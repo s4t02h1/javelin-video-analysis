@@ -1,6 +1,34 @@
 import cv2
 import numpy as np
 import mediapipe as mp
+import math
+from typing import Optional, Tuple
+
+COLORMAPS = {
+    "jet": cv2.COLORMAP_JET,
+    "turbo": getattr(cv2, "COLORMAP_TURBO", cv2.COLORMAP_JET),
+    "plasma": cv2.COLORMAP_PLASMA,
+    "viridis": cv2.COLORMAP_VIRIDIS,
+    "hot": cv2.COLORMAP_HOT,
+}
+
+def _normalize01(value: Optional[float], vmin: float, vmax: float) -> float:
+    if value is None or (isinstance(value, float) and (math.isnan(value) or math.isinf(value))):
+        return 0.0
+    if vmax <= vmin:
+        return 0.0
+    x = max(vmin, min(vmax, float(value)))
+    return (x - vmin) / (vmax - vmin)
+
+def to_bgr(value: Optional[float], vmin: float, vmax: float, cmap_name: str = "turbo") -> Tuple[int, int, int]:
+    """Map scalar to BGR color tuple using OpenCV colormaps."""
+    norm = _normalize01(value, vmin, vmax)
+    idx = int(round(norm * 255.0))
+    arr = np.array([[idx]], dtype=np.uint8)
+    cmap = COLORMAPS.get(cmap_name, cv2.COLORMAP_JET)
+    colored = cv2.applyColorMap(arr, cmap)
+    b, g, r = colored[0, 0].tolist()
+    return int(b), int(g), int(r)
 
 RIGHT_WRIST_IDX = 16
 VIS_THRESH = 0.5
@@ -33,7 +61,8 @@ class PoseAnalyzer:
             self.m_per_px = float(reference_meters) / float(reference_pixels)
 
     def close(self):
-        self.pose.close()
+        if hasattr(self.pose, "close"):
+            self.pose.close()
 
     # 内部ユーティリティ
     def _landmarks_to_points(self, frame_shape, landmarks):
@@ -110,20 +139,24 @@ class PoseAnalyzer:
         cv2.putText(img, mid_val, (x0 - 5 - 8*len(mid_val), y0 + bar_h//2 + 4), font, 0.45, (255,255,255), 1, cv2.LINE_AA)
         cv2.putText(img, bot_val, (x0 - 5 - 8*len(bot_val), y0 + bar_h), font, 0.45, (255,255,255), 1, cv2.LINE_AA)
 
-    def _draw_axes(self, img, origin=None, axis_len=150, color=(0,0,0)):
+    def _draw_axes(self, img, origin=None, axis_len=150, color=(0, 0, 0)):
         h, w = img.shape[:2]
-        ox, oy = (40, h-40) if origin is None else origin
+        ox, oy = (40, h - 40) if origin is None else origin
         thickness = 2
+
         # X軸（右向き）
-        cv2.arrowedLine(img, (ox, oy), (ox+axis_len, oy), color, thickness, tipLength=0.05)
-        cv2.putText(img, 'X', (ox+axis_len+8, oy+4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+        cv2.arrowedLine(img, (ox, oy), (ox + axis_len, oy), color, thickness, tipLength=0.05)
+        cv2.putText(img, 'X', (ox + axis_len + 8, oy + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+
         # Y軸（上向き）
-        cv2.arrowedLine(img, (ox, oy), (ox, oy-axis_len), color, thickness, tipLength=0.05)
-        cv2.putText(img, 'Y', (ox-12, oy-axis_len-8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+        cv2.arrowedLine(img, (ox, oy), (ox, oy - axis_len), color, thickness, tipLength=0.05)
+        cv2.putText(img, 'Y', (ox - 12, oy - axis_len - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+
         # 薄いグリッド
         overlay = img.copy()
         step = 50
         grid_color = (0, 0, 0)
+
         for x in range(ox, w, step):
             cv2.line(overlay, (x, 0), (x, h), grid_color, 1)
         for x in range(ox, 0, -step):
@@ -132,7 +165,8 @@ class PoseAnalyzer:
             cv2.line(overlay, (0, y), (w, y), grid_color, 1)
         for y in range(oy, 0, -step):
             cv2.line(overlay, (0, y), (w, y), grid_color, 1)
-        cv2.addWeighted(overlay, 0.15, img, 0.85, 0, dst=img)
+
+        img[:] = cv2.addWeighted(overlay, 0.15, img, 0.85, 0)
 
     # メイン処理
     def process(self, frame, fps):
@@ -173,13 +207,12 @@ class PoseAnalyzer:
         # 重心（赤）
         if state["com"] is not None:
             cv2.circle(img, state["com"], 8, (0,0,255), -1)
-
         # 右手首の軌跡（白・半透明）
         if len(self.right_wrist_path) >= 2:
             overlay = img.copy()
             for i in range(1, len(self.right_wrist_path)):
                 cv2.line(overlay, self.right_wrist_path[i-1], self.right_wrist_path[i], (255,255,255), 2)
-            cv2.addWeighted(overlay, 0.45, img, 0.55, 0, dst=img)
+            img = cv2.addWeighted(overlay, 0.45, img, 0.55, 0)
 
         return img
 
@@ -210,17 +243,8 @@ class PoseAnalyzer:
         self._draw_colorbar(img, max_speed=self.max_speed, unit=unit)
         return img
 
-    def render_stickman(self, frame_shape, state, background='black'):
-        h, w = frame_shape[:2]
-        if background == 'green':
-            img = np.zeros((h, w, 3), dtype=np.uint8); img[:] = (0, 255, 0)
-        else:
-            img = np.zeros((h, w, 3), dtype=np.uint8)
-
-        # 座標軸（緑背景上で黒）
-        self._draw_axes(img, color=(0,0,0))
-
-        # 骨格（白）
+    def render_stickman(self, frame, state):
+        img = frame.copy()
         for a, b in self.connections:
             pa = state["points"][a] if a < len(state["points"]) else None
             pb = state["points"][b] if b < len(state["points"]) else None
@@ -229,7 +253,6 @@ class PoseAnalyzer:
         for p in state["points"]:
             if p is not None:
                 cv2.circle(img, p, 5, (255, 255, 255), -1)
-        # 重心
         if state["com"] is not None:
             cv2.circle(img, state["com"], 8, (0, 0, 255), -1)
         return img
