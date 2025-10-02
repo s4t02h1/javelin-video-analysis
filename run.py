@@ -25,6 +25,15 @@ import numpy as np
 # 既存モジュール
 from src.pipelines.pose_analysis import PoseAnalyzer
 
+# FFmpeg ハードウェアエンコード
+try:
+    from jva.ffmpeg_io import have_ffmpeg, encode_hw
+except Exception:
+    def have_ffmpeg() -> bool:
+        return False
+    def encode_hw(in_path: str, out_path: str, crf_or_bitrate: str = "6M") -> bool:
+        return False
+
 # 新しい可視化モジュール
 try:
     from jva_visuals.registry import VisualPipeline, VisualPassRegistry
@@ -92,6 +101,9 @@ def override_config_with_args(config: Dict[str, Any], args: argparse.Namespace) 
     if args.export_landmarks:
         output["export_landmarks"] = True
         output["landmarks_filename"] = args.export_landmarks
+    if getattr(args, "hw_encode", False):
+        output["hw_encode"] = True
+        output["encode_bitrate"] = args.encode_bitrate
     
     # Blender設定
     blender = config.get("blender", {})
@@ -370,6 +382,25 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
         out.release()
         pose_analyzer.close()
     
+    # 必要に応じてFFmpegで再エンコード
+    try:
+        if config.get("output", {}).get("hw_encode"):
+            if have_ffmpeg():
+                tmp_out = output_path + ".tmp.mp4"
+                bitrate = config.get("output", {}).get("encode_bitrate", "6M")
+                if encode_hw(output_path, tmp_out, bitrate):
+                    try:
+                        os.replace(tmp_out, output_path)
+                        logger.info("FFmpegハードウェアエンコード適用済み")
+                    except Exception as e:
+                        logger.error(f"出力置換に失敗: {e}")
+                else:
+                    logger.error("FFmpegハードウェアエンコードに失敗。OpenCV出力を保持します。")
+            else:
+                logger.warning("FFmpegが見つからないためHWエンコードをスキップ")
+    except Exception as e:
+        logger.error(f"HWエンコード処理中に例外: {e}")
+    
     # 処理完了の詳細情報
     processing_time = frame_count / fps if fps > 0 else 0
     logger.info(f"Video processing completed: {output_path}")
@@ -433,6 +464,10 @@ def main():
     parser.add_argument("--hud", action="store_true", help="ゲーム風HUDを表示")
     parser.add_argument("--wrist-trail", action="store_true", help="右手首軌跡を表示")
     parser.add_argument("--glow-trail", action="store_true", help="光軌跡エフェクトを表示")
+    
+    # ハードウェアエンコード
+    parser.add_argument("--hw-encode", action="store_true", help="FFmpegハードウェアエンコードを使用して最終出力を再エンコード")
+    parser.add_argument("--encode-bitrate", default="6M", help="HWエンコードのビットレート/品質 (例: 6M または 23)")
     
     # マルチ出力オプション
     parser.add_argument("--all-variants", action="store_true", 
