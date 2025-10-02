@@ -1,17 +1,31 @@
-[tool.poetry]
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
 name = "javelin-video-analysis"
 version = "0.1.0"
-description = "A video analysis program for javelin tracking, speed visualization, and acceleration heatmaps."
-authors = ["Your Name <your.email@example.com>"]
-license = "MIT"
+description = "Javelin throw video analysis and visualization toolkit."
+requires-python = ">=3.10"
+authors = [
+	{ name = "s4t02h1" }
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+dependencies = [
+	"opencv-python",
+	"numpy",
+	"pyyaml",
+	"pydantic>=2",
+	"boto3",
+	"fastapi",
+	"uvicorn[standard]",
+	"jinja2",
+	"python-multipart"
+]
 
-[tool.poetry.dependencies]
-python = "^3.8"
-opencv-python = "^4.5.3"
-mediapipe = "^0.8.6"
-numpy = "^1.21.0"
-pyyaml = "^5.4.1"
+[project.scripts]
+jva = "jva.cli:main"
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.setuptools.packages.find]
+where = ["src"]
