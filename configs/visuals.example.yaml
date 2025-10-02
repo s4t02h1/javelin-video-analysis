@@ -1,0 +1,87 @@
+# configs/visuals.example.yaml - 可視化機能の設定例
+# この設定をconfigs/visuals.yamlにコピーして編集してください
+
+# 基本設定
+height_m: 1.80  # 被写体の身長（メートル）。物理単位での速度計算に使用
+
+# 可視化機能の設定（すべてデフォルトはfalse = 後方互換）
+visuals:
+  # 右手首軌跡（通常）
+  wrist_trail: true
+  wrist_trail_cfg:
+    max_length: 200      # 軌跡の最大長さ（フレーム数）
+    thickness: 2         # 線の太さ
+    color: [255, 255, 255]  # BGR色指定（白）
+    fade_alpha: true     # フェード効果
+
+  # 光軌跡（グロー効果付き）
+  glow_trail: false
+  glow_trail_cfg:
+    max_length: 150
+    thickness: 3
+    color: [255, 255, 255]
+    glow_radius: 15      # グロー半径
+    glow_intensity: 0.8  # グロー強度
+    glow_color: [0, 255, 255]  # シアン
+    speed_responsive: true     # 速度応答
+    min_speed_threshold: 5.0   # 最小速度閾値（px/s）
+
+  # 速度・加速度ベクトル
+  vectors: true
+  vectors_cfg:
+    scale: 0.6           # ベクトルスケール
+    show_velocity: true  # 速度ベクトル表示
+    show_acceleration: true  # 加速度ベクトル表示
+    velocity_color: [0, 255, 0]      # 緑
+    acceleration_color: [0, 0, 255]  # 赤
+    smooth: "ema"        # 平滑化方法（"ema" or "savgol"）
+    ema_alpha: 0.3       # EMA係数
+    min_vector_length: 10   # 最小描画長さ
+    max_vector_length: 100  # 最大描画長さ
+    target_joints: [11, 12, 13, 14, 15, 16, 23, 24]  # 描画対象関節
+
+  # 速度ヒートマップ
+  heatmap: true
+  heatmap_cfg:
+    radius: 24           # ヒートスポット半径
+    alpha: 0.35          # 透明度
+    colormap: 2          # OpenCVカラーマップ（COLORMAP_JET=2）
+    max_speed: 50.0      # 最大速度スケール
+    min_speed: 2.0       # 最小速度スケール
+    adaptive_scale: true # 動的スケール調整
+    smooth: "ema"
+    ema_alpha: 0.3
+    target_joints: [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
+
+  # ゲーム風HUD
+  hud: true
+  hud_cfg:
+    show_metrics: true   # メトリクスパネル
+    show_gauges: true    # ゲージ表示
+    show_events: true    # イベント表示
+    release_speed_threshold_ms: 22.0  # リリース検知閾値（m/s）
+    release_flash_duration: 0.5       # フラッシュ持続時間
+    alpha: 0.8           # HUD透明度
+    panel_color: [0, 0, 0]        # パネル色（黒）
+    text_color: [255, 255, 255]   # テキスト色（白）
+    accent_color: [0, 255, 255]   # アクセント色（シアン）
+    warning_color: [0, 0, 255]    # 警告色（赤）
+
+# 出力設定
+output:
+  export_landmarks: false  # ランドマークJSONの出力
+  landmarks_filename: "landmarks.json"  # ランドマークファイル名
+  
+# Blender連携設定
+blender:
+  enabled: false         # Blender連携の有効化
+  executable_path: "blender"  # Blenderの実行パス
+  render_overlay: false  # オーバーレイ動画の生成
+  background_video: true # 背景動画の合成
+  render_quality: "MEDIUM"  # レンダリング品質（LOW/MEDIUM/HIGH）
+  
+# デバッグ設定
+debug:
+  profile_performance: false  # パフォーマンスプロファイリング
+  save_intermediate: false    # 中間結果の保存
+  verbose_logging: false      # 詳細ログ出力

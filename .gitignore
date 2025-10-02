@@ -1,4 +1,56 @@
-<<<<<<< HEAD
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Environments
+.env
+.envrc
+.venv/
+venv/
+venv311/
+ENV/
+env/
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Caches / Logs
+.pytest_cache/
+.ipynb_checkpoints/
+.ruff_cache/
+.pdm-python
+.pdm-build/
+logs/
+*.log
+
+# Build / Dist
+build/
+dist/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+MANIFEST
+
+# Project data & outputs
+input/
+output/
+data/input/
+data/output/
+
+# Misc
+.pypirc
+.cursorignore
+.cursorindexingignore<<<<<<< HEAD
 # Python
 __pycache__/
 *.pyc
@@ -27,6 +79,7 @@ logs/
 *.log
 =======
 # Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
@@ -39,12 +92,14 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+venv311/
 downloads/
 eggs/
 .eggs/
 lib/
 lib64/
 parts/
+output/
 sdist/
 var/
 wheels/

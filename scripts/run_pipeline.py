@@ -86,6 +86,6 @@ def process_all_videos(input_dir, output_dir):
         run_pipeline(input_video_path, output_stem, export_rgba_sequence=False)  # TrueでPNG透過も出力
 
 if __name__ == "__main__":
-    input_directory = "data/input"
-    output_directory = "data/output"
+    input_directory = "input"
+    output_directory = "output"
     process_all_videos(input_directory, output_directory)

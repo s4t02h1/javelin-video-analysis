@@ -1,20 +1,42 @@
 import cv2
 import numpy as np
-import mediapipe as mp
+
+# MediaPipeのインポート: まずは素直に試し、失敗時のみDLL修復を試す
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+    print(f"✅ MediaPipe loaded successfully! Version: {mp.__version__}")
+except Exception as first_err:
+    try:
+        from src.utils.mediapipe_fix import fix_mediapipe_dll_issues
+        fix_mediapipe_dll_issues()
+        import mediapipe as mp
+        MEDIAPIPE_AVAILABLE = True
+        print(f"✅ MediaPipe loaded successfully after DLL fix! Version: {mp.__version__}")
+    except Exception as e:
+        print(f"MediaPipe not available ({first_err}), using mock implementation")
+        from src.utils.mock_mediapipe import mp
+        MEDIAPIPE_AVAILABLE = False
 
 RIGHT_WRIST_IDX = 16
 VIS_THRESH = 0.5
 
 class PoseAnalyzer:
     def __init__(self, model_complexity=1, min_det_conf=0.5, min_track_conf=0.5, max_path_len=300, meters_per_pixel=None):
+        self.mediapipe_available = MEDIAPIPE_AVAILABLE
         self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=model_complexity,
-            enable_segmentation=False,
-            min_detection_confidence=min_det_conf,
-            min_tracking_confidence=min_track_conf
-        )
+        
+        if self.mediapipe_available:
+            self.pose = self.mp_pose.Pose(
+                static_image_mode=False,
+                model_complexity=model_complexity,
+                enable_segmentation=False,
+                min_detection_confidence=min_det_conf,
+                min_tracking_confidence=min_track_conf
+            )
+        else:
+            self.pose = self.mp_pose.Pose()
+            
         self.connections = list(self.mp_pose.POSE_CONNECTIONS)
         self.prev_points = None
         self.velocities = None
@@ -22,6 +44,9 @@ class PoseAnalyzer:
         self.max_path_len = max_path_len
         self.max_speed = 1.0     # カラーマップのダイナミックレンジ
         self.m_per_px = meters_per_pixel  # 実寸換算スケール（m/px） 未指定ならpx/s
+        
+        if not self.mediapipe_available:
+            print("WARNING: MediaPipe not available. Pose detection will not work.")
 
     # スケール設定
     def set_scale(self, meters_per_pixel: float):

@@ -1,8 +1,19 @@
-opencv-python
-numpy
+opencv-python>=4.5.0
+mediapipe>=0.8.6
+numpy>=1.21.0
 pandas
 matplotlib
 scikit-learn
-PyYAML
+PyYAML>=5.4.1
 tqdm
 seaborn
+
+# 可視化機能の依存関係
+scipy>=1.7.0  # Savitzky-Golay フィルタ用
+
+# テスト環境（オプション）
+pytest>=6.0
+pytest-cov
+
+# 開発環境（オプション）
+# blender # Blender連携（手動インストール）
