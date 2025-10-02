@@ -24,6 +24,7 @@ import numpy as np
 
 # 既存モジュール
 from src.pipelines.pose_analysis import PoseAnalyzer
+from jva.smart_skip import SmartSkipper
 
 # 新しい可視化モジュール
 try:
@@ -305,6 +306,7 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
     
     # フレーム処理
     frame_count = 0
+    skipper = SmartSkipper()
     try:
         while True:
             ret, frame = cap.read()
@@ -317,8 +319,27 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
                 elapsed_time = (frame_count / fps) if fps > 0 else 0
                 logger.info(f"Processing frame {frame_count}/{total_frames} ({progress:.1f}%) - Elapsed: {elapsed_time:.1f}s")
             
-            # ポーズ解析
-            state = pose_analyzer.process(frame, fps)
+            # ポーズ解析（スマートスキップ）
+            # 直前結果のランドマークを使って変化量を推定し、必要なフレームのみ推論
+            prev_points = None
+            # 簡易に: analyzer内部状態に依存せず、毎回推論しつつ将来の統合に備える
+            do_infer = True
+            if landmarks_data:
+                # 前フレームの正規化座標から近似ピクセルへ（幅高さを掛ける）
+                prev_frame = landmarks_data[-1]["landmarks"]
+                prev_points = []
+                for lm in prev_frame:
+                    if lm.get("visibility", 0.0) > 0:
+                        prev_points.append((lm["x"] * width, lm["y"] * height))
+                    else:
+                        prev_points.append(None)
+                do_infer = skipper.should_infer(prev_points)
+
+            if do_infer:
+                state = pose_analyzer.process(frame, fps)
+            else:
+                # スキップする場合は前回の状態を流用（最低限の補間）
+                state = pose_analyzer.last_state if hasattr(pose_analyzer, "last_state") else {}
             
             # 基本の骨格描画
             result = pose_analyzer.render_basic(frame, state)
