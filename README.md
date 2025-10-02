@@ -39,6 +39,22 @@ ls output/
 
 **これだけです！** 詳細な設定は後述の使用方法をご覧ください。
 
+### 4バリアント同時出力（おすすめ）
+
+```bash
+python run.py --all-variants --height-m 1.80
+```
+
+出力例:
+- skeleton_with_trail.mp4
+- heatmap.mp4
+- gaming_hud.mp4
+- for_blender.mp4 + landmarks.json
+
+## 📚 Docs
+- Colab: docs/colab_snippet.md
+- S3 CORS: docs/s3_cors.json
+
 ## 🧪 最小SaaSデモ（FastAPI + S3直PUT）
 
 前提: AWSクレデンシャルが環境に設定済み、`.env` に `AWS_REGION` と `JVA_BUCKET` を設定。
