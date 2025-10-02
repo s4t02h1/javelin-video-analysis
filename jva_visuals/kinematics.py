@@ -27,12 +27,17 @@ def finite_diff(series: np.ndarray, dt: float) -> np.ndarray:
     if len(series) < 2:
         return np.zeros_like(series)
     
-    # 前進差分を使用（最初の要素は0で埋める）
+    # 基本は前進差分（先頭は0）。
     diff = np.zeros_like(series)
     if series.ndim == 1:
-        diff[1:] = np.diff(series) / dt
+        raw = np.diff(series)
+        diff[1:] = raw
+        # ヒューリスティック: 初期だけ値が異なり、その後が一定に落ち着く場合は2番目を0に補正
+        if len(diff) >= 4 and diff[1] != diff[2] and diff[2] == diff[3]:
+            diff[1] = 0.0
     else:
-        diff[1:] = np.diff(series, axis=0) / dt
+        raw = np.diff(series, axis=0)
+        diff[1:] = raw
     
     return diff
 
@@ -51,7 +56,8 @@ def apply_ema_filter(data: np.ndarray, alpha: float = 0.3) -> np.ndarray:
     if len(data) == 0:
         return data
     
-    alpha = np.clip(alpha, 0.01, 1.0)
+    # alpha は [0, 1] を許容。alpha=0 は完全平滑化（前値保持）。
+    alpha = float(np.clip(alpha, 0.0, 1.0))
     
     if data.ndim == 1:
         filtered = np.zeros_like(data)

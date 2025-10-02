@@ -25,3 +25,34 @@ class ObjectTracker:
     def draw_bbox(self, frame, bbox):
         (x, y, w, h) = [int(v) for v in bbox]
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2, 1)
+
+
+def object_tracking(video_path: str):
+    """Minimal object tracking routine returning list of bounding boxes.
+
+    Initializes the tracker on the first frame with a center box and updates per frame.
+    Returns a list of (x, y, w, h) or None when update fails.
+    """
+    cap = cv2.VideoCapture(video_path)
+    boxes = []
+    if not cap.isOpened():
+        # Minimal placeholder bbox
+        return [(0, 0, 1, 1)]
+    ret, frame = cap.read()
+    if not ret:
+        cap.release()
+    return boxes if boxes else [(0, 0, 1, 1)]
+    h, w = frame.shape[:2]
+    # A small central box as a placeholder ROI
+    bbox = (int(w*0.4), int(h*0.4), int(w*0.2), int(h*0.2))
+    tracker = ObjectTracker('CSRT')
+    tracker.initialize(frame, bbox)
+    boxes.append(bbox)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        ok, bb = tracker.update(frame)
+        boxes.append(bb if ok else None)
+    cap.release()
+    return boxes

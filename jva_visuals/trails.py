@@ -24,7 +24,7 @@ class WristTrailPass(VisualPassBase):
         super().__init__(config)
         self.max_trail_length = config.get("max_length", 200)
         self.line_thickness = config.get("thickness", 2)
-        self.color = config.get("color", (255, 255, 255))  # BGR
+        self.color = tuple(config.get("color", (255, 255, 255)))  # BGR
         self.fade_alpha = config.get("fade_alpha", True)
         
         # 軌跡バッファ
@@ -99,7 +99,7 @@ class GlowTrailPass(WristTrailPass):
         super().__init__(config)
         self.glow_radius = config.get("glow_radius", 15)
         self.glow_intensity = config.get("glow_intensity", 0.8)
-        self.glow_color = config.get("glow_color", (0, 255, 255))  # シアン
+        self.glow_color = tuple(config.get("glow_color", (0, 255, 255)))  # シアン
         self.speed_responsive = config.get("speed_responsive", True)
         self.min_speed_threshold = config.get("min_speed_threshold", 5.0)  # px/s
         
