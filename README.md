@@ -1,5 +1,9 @@
 # Javelin Video Analysis
 
+![CI](https://github.com/s4t02h1/javelin-video-analysis/actions/workflows/ci.yml/badge.svg)
+![PyPI](https://img.shields.io/pypi/v/javelin-video-analysis.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 高度な可視化機能を備えたやり投げ動作解析システム。MediaPipeベースのポーズ解析に加え、ベクトル描画、ヒートマップ、ゲーム風HUD、Blender 3D連携を提供します。
 
 ## ✨ 新機能（v2.0）
