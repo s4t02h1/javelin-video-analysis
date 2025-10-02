@@ -17,3 +17,8 @@ pytest-cov
 
 # 開発環境（オプション）
 # blender # Blender連携（手動インストール）
+
+# SaaS API（FastAPI + S3）
+fastapi
+uvicorn[standard]
+boto3

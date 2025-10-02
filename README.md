@@ -55,6 +55,21 @@ python run.py --all-variants --height-m 1.80
 - Colab: docs/colab_snippet.md
 - S3 CORS: docs/s3_cors.json
 
+## 🧪 最小SaaSデモ（FastAPI + S3直PUT）
+
+前提: AWSクレデンシャルが環境に設定済み、`.env` に `AWS_REGION` と `JVA_BUCKET` を設定。
+
+起動:
+
+```bash
+uvicorn server.app:app --reload --port 8000
+```
+
+エンドポイント:
+- POST /v1/jobs: 事前署名URLを返す
+- POST /v1/jobs/{id}/process: バックグラウンドで解析実行→S3に結果格納
+- GET  /v1/jobs/{id}: ステータス取得
+
 ## Project Structure
 
 ```
