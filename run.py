@@ -24,6 +24,14 @@ import numpy as np
 
 # 既存モジュール
 from src.pipelines.pose_analysis import PoseAnalyzer
+try:
+    from jva.pose_backend import PoseBackend
+except Exception:
+    class PoseBackend:
+        def __init__(self, use_tasks: bool = False):
+            self.use_tasks = use_tasks
+        def init(self, fps: float):
+            return None
 
 # 新しい可視化モジュール
 try:
@@ -99,9 +107,15 @@ def override_config_with_args(config: Dict[str, Any], args: argparse.Namespace) 
         blender["enabled"] = True
         blender["render_overlay"] = True
     
+    # Backend設定
+    backend_cfg = config.get("backend", {})
+    if getattr(args, "use_tasks", False):
+        backend_cfg["use_tasks"] = True
+    
     config["visuals"] = visuals
     config["output"] = output
     config["blender"] = blender
+    config["backend"] = backend_cfg
     
     return config
 
@@ -285,6 +299,9 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
         return False
     
     # PoseAnalyzerの初期化
+    use_tasks_flag = config.get("backend", {}).get("use_tasks", False) if isinstance(config, dict) else False
+    backend = PoseBackend(use_tasks=use_tasks_flag)
+    backend.init(fps)
     pose_analyzer = PoseAnalyzer()
     if config.get("height_m"):
         pose_analyzer.set_scale_from_reference(height * 0.8, config["height_m"] * 0.8)
@@ -440,6 +457,8 @@ def main():
     
     # 出力オプション
     parser.add_argument("--export-landmarks", help="ランドマークをJSONで出力（ファイル名を指定）")
+    # バックエンド切替
+    parser.add_argument("--use-tasks", action="store_true", help="MediaPipe Tasksを使用（従来はSolutions）")
     
     # Blender連携
     parser.add_argument("--blender-overlay", action="store_true", 
