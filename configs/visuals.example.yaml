@@ -1,0 +1,16 @@
+visuals:
+  wrist_trail: true
+  glow_trail: false
+  vectors: true
+  vectors_cfg:
+    scale: 0.6
+    smooth: "ema"
+    ema_alpha: 0.3
+  heatmap: true
+  heatmap_cfg:
+    radius: 24
+    alpha: 0.35
+  hud: true
+  hud_cfg:
+    release_speed_threshold_ms: 22.0
+height_m: 1.80

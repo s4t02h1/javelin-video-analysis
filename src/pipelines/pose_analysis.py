@@ -33,7 +33,7 @@ def to_bgr(value: Optional[float], vmin: float, vmax: float, cmap_name: str = "t
 RIGHT_WRIST_IDX = 16
 VIS_THRESH = 0.5
 
-class PoseAnalyzer:
+class PoseAnalysis:
     def __init__(self, model_complexity=1, min_det_conf=0.5, min_track_conf=0.5, max_path_len=300, meters_per_pixel=None):
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
@@ -216,35 +216,13 @@ class PoseAnalyzer:
 
         return img
 
-    def render_heatmap(self, frame, state):
-        base = frame.copy()
-        v = state["velocities"] if state["velocities"] is not None else np.zeros(33, dtype=np.float32)
-
-        # まず白線をそのまま描画（線は変化なし）
-        result = base.copy()
-        for a, b in self.connections:
-            pa = state["points"][a] if a < len(state["points"]) else None
-            pb = state["points"][b] if b < len(state["points"]) else None
-            if pa is not None and pb is not None:
-                cv2.line(result, pa, pb, (255, 255, 255), 1)
-
-        # 点だけ速度カラーでオーバーレイ（控えめにブレンド）
-        overlay = np.zeros_like(base)
-        for i, p in enumerate(state["points"]):
-            if p is not None:
-                color = self._speed_to_bgr(float(v[i]))  # RAINBOW
-                cv2.circle(overlay, p, 3, color, -1)
-
-        # 光量控えめに合成
-        img = cv2.addWeighted(result, 0.8, overlay, 0.2, 0)
-
-        # カラーバー（右側）
-        unit = "m/s" if self.m_per_px else "px/s"
-        self._draw_colorbar(img, max_speed=self.max_speed, unit=unit)
-        return img
-
-    def render_stickman(self, frame, state):
-        img = frame.copy()
+    def render_stickman(self, frame_shape, state, background='black'):
+        h, w = frame_shape[:2]
+        if background == 'green':
+            img = np.zeros((h, w, 3), dtype=np.uint8)
+            img[:] = (0, 255, 0)
+        else:
+            img = np.zeros((h, w, 3), dtype=np.uint8)
         for a, b in self.connections:
             pa = state["points"][a] if a < len(state["points"]) else None
             pb = state["points"][b] if b < len(state["points"]) else None
@@ -257,9 +235,34 @@ class PoseAnalyzer:
             cv2.circle(img, state["com"], 8, (0, 0, 255), -1)
         return img
 
+    def render_heatmap(self, frame, state):
+        h, w = frame.shape[:2]
+        base = frame.copy()
+
+        v = state["velocities"] if state["velocities"] is not None else np.zeros(33, dtype=np.float32)
+
+        result = base.copy()
+        for a, b in self.connections:
+            pa = state["points"][a] if a < len(state["points"]) else None
+            pb = state["points"][b] if b < len(state["points"]) else None
+            if pa is not None and pb is not None:
+                cv2.line(result, pa, pb, (255, 255, 255), 1)
+
+        overlay = np.zeros_like(base)
+        for i, p in enumerate(state["points"]):
+            if p is not None:
+                color = self._speed_to_bgr(float(v[i]))
+                cv2.circle(overlay, p, 3, color, -1)
+
+        img = cv2.addWeighted(result, 0.8, overlay, 0.2, 0)
+
+        unit = "m/s" if self.m_per_px else "px/s"
+        self._draw_colorbar(img, max_speed=self.max_speed, unit=unit)
+        return img
+
     def render_stickman_rgba(self, frame_shape, state):
         h, w = frame_shape[:2]
-        img = np.zeros((h, w, 4), dtype=np.uint8)  # BGRA
+        img = np.zeros((h, w, 4), dtype=np.uint8)
         for a, b in self.connections:
             pa = state["points"][a] if a < len(state["points"]) else None
             pb = state["points"][b] if b < len(state["points"]) else None
@@ -271,3 +274,6 @@ class PoseAnalyzer:
         if state["com"] is not None:
             cv2.circle(img, state["com"], 8, (0, 0, 255, 255), -1)
         return img
+
+
+PoseAnalyzer = PoseAnalysis

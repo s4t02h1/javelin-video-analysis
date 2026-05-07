@@ -9,3 +9,17 @@ smoothing_factor: 0.1
 heatmap_resolution: 256
 video_fps: 30
 debug_mode: false
+
+visualization:
+  speed:
+    auto_range: true
+    fixed_min: 0.0
+    fixed_max: 10.0
+    colormap: turbo
+  acceleration:
+    enabled: true
+    auto_range: true
+    fixed_min: 0.0
+    fixed_max: 50.0
+    ema_alpha: 0.4
+    colormap: plasma
