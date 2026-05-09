@@ -202,9 +202,13 @@ def update_intake(intake_id: str, **kwargs: Any) -> Dict[str, Any]:
 
     不明なフィールドを渡しても落ちない（後方互換）。
     updated_at は自動更新される。
+    intake_id / created_at は外部から上書きできない。
     """
     intake = load_intake(intake_id)
     old_status = intake.get("status", "")
+    # 保護フィールドは外部から変更不可
+    for _protected in ("intake_id", "created_at"):
+        kwargs.pop(_protected, None)
     for k, v in kwargs.items():
         intake[k] = v
     intake["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -285,28 +289,12 @@ def reject_intake(intake_id: str, note: str = "") -> Dict[str, Any]:
 
 def check_all_consents(intake: Dict[str, Any]) -> bool:
     """同意事項が全て True かどうかを返す。"""
-    consent_keys = [
-        "consent_reference_analysis",
-        "consent_not_medical",
-        "consent_not_coaching_replacement",
-        "consent_accuracy_depends_on_video",
-        "consent_delivery_may_take_time",
-        "consent_sns_requires_permission",
-    ]
-    return all(intake.get(k, False) for k in consent_keys)
+    return all(intake.get(k, False) for k in CONSENT_LABELS)
 
 
 def missing_consents(intake: Dict[str, Any]) -> List[str]:
     """未同意の同意事項キーリストを返す。"""
-    consent_keys = [
-        "consent_reference_analysis",
-        "consent_not_medical",
-        "consent_not_coaching_replacement",
-        "consent_accuracy_depends_on_video",
-        "consent_delivery_may_take_time",
-        "consent_sns_requires_permission",
-    ]
-    return [k for k in consent_keys if not intake.get(k, False)]
+    return [k for k in CONSENT_LABELS if not intake.get(k, False)]
 
 
 CONSENT_LABELS: Dict[str, str] = {
@@ -357,11 +345,8 @@ def convert_intake_to_job(
             pass
 
     new_job_result = job_manager_module.create_job(height_m=height_m, mode="all_variants")
-    # create_job は job_id 文字列を返す場合と dict を返す場合がある
-    if isinstance(new_job_result, str):
-        job_id = new_job_result
-    else:
-        job_id = new_job_result["job_id"]
+    # create_job は常に dict を返す（job_manager.create_job の型注記: -> dict）
+    job_id = new_job_result["job_id"]
 
     # job.json に受付情報をコピー
     job_manager_module.update_job(

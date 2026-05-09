@@ -153,13 +153,14 @@ async def api_create_intake(
     except Exception:
         body = {}
 
+    # raw_payload 未指定なら body 全体（source を含む）を保存する。
+    # source を pop する前に捕捉することで、元のフォームデータを完全に記録する。
+    if "raw_payload" not in body:
+        body["raw_payload"] = dict(body)
+
     source = body.pop("source", "unknown")
     if source not in INTAKE_SOURCES:
         source = "api"
-
-    # raw_payload が未指定なら body 全体を保存
-    if "raw_payload" not in body:
-        body["raw_payload"] = dict(body)
 
     try:
         intake = create_intake(source=source, **body)
@@ -185,8 +186,8 @@ def api_list_intakes(
     _verify_api_key(x_jva_api_key, authorization)
 
     intakes = list_intakes(status=status, source=source)
-    # 個人情報フィールドを除いたリスト
-    return JSONResponse([_safe_response(i) for i in intakes])
+    # リスト表示では raw_payload を除外してレスポンスサイズを抑える
+    return JSONResponse([_safe_response(i, exclude_raw_payload=True) for i in intakes])
 
 
 # ── ヘルスチェック（{intake_id} より前に登録する必要がある）──────────────────
@@ -215,7 +216,8 @@ def api_get_intake(
         intake = load_intake(intake_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="intake が見つかりません。")
-    return JSONResponse(_safe_response(intake))
+    # 詳細取得では raw_payload も含める
+    return JSONResponse(_safe_response(intake, exclude_raw_payload=False))
 
 
 @intake_router.patch("/intakes/{intake_id}")
@@ -248,7 +250,7 @@ async def api_update_intake(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     _try_log_audit(intake["intake_id"], intake.get("source", "unknown"), "update", True)
-    return JSONResponse(_safe_response(intake))
+    return JSONResponse(_safe_response(intake, exclude_raw_payload=False))
 
 
 @intake_router.post("/intakes/{intake_id}/convert-to-job", status_code=201)
@@ -345,14 +347,17 @@ async def api_reject_intake(
 # ログに出さないフィールド（個人情報）
 _PII_FIELDS = {"name_or_nickname", "contact", "line_user_id", "email", "instagram_account"}
 
-def _safe_response(intake: Dict[str, Any]) -> Dict[str, Any]:
-    """raw_payload を除いたレスポンス用 dict を返す。
+def _safe_response(intake: Dict[str, Any], exclude_raw_payload: bool = True) -> Dict[str, Any]:
+    """APIレスポンス用 dict を返す。
 
-    APIレスポンスでは raw_payload を除外してサイズを抑える。
-    詳細取得エンドポイントでは生データが必要なため含める。
-    ここでは全フィールドを返すが、ログには PII を含まない。
+    exclude_raw_payload=True (デフォルト)の場合、raw_payload を除外しレスポンスサイズを抑える。
+    詳細取得エンドポイントでは exclude_raw_payload=False を指定すること。
+    PII (個人情報) は認証済み管理者向けに返すため、レスポンスに含める。
+    ログには PII を出力しない。
     """
-    return {k: v for k, v in intake.items()}
+    if exclude_raw_payload:
+        return {k: v for k, v in intake.items() if k != "raw_payload"}
+    return dict(intake)
 
 
 def _try_log_audit(

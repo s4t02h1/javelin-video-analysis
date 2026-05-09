@@ -185,8 +185,9 @@ class TestIntakeManager(unittest.TestCase):
         def _create_job(height_m=None, mode="all_variants"):
             import uuid
             job_id = "job_test_" + uuid.uuid4().hex[:8]
-            _created_jobs[job_id] = {"job_id": job_id, "status": "created"}
-            return job_id
+            job_data = {"job_id": job_id, "status": "created"}
+            _created_jobs[job_id] = job_data
+            return job_data
 
         def _update_job(job_id: str, **kwargs):
             if job_id in _created_jobs:
@@ -519,7 +520,7 @@ class TestIntakeApi(unittest.TestCase):
         created_job_id = "job_test_api_001"
 
         def _create_job(height_m=None, mode="all_variants"):
-            return created_job_id
+            return {"job_id": created_job_id, "status": "created"}
 
         mock_jm.create_job.side_effect = _create_job
         mock_jm.update_job.side_effect = lambda job_id, **kw: None
@@ -551,7 +552,7 @@ class TestIntakeApi(unittest.TestCase):
 
         def _create_job(height_m=None, mode="all_variants"):
             call_count[0] += 1
-            return f"job_test_double_{call_count[0]:03d}"
+            return {"job_id": f"job_test_double_{call_count[0]:03d}", "status": "created"}
 
         with patch("job_manager.create_job", side_effect=_create_job), \
              patch("job_manager.update_job", side_effect=lambda job_id, **kw: None), \
@@ -653,7 +654,7 @@ class TestPiiNotLogged(unittest.TestCase):
             )
 
             mock_jm = MagicMock()
-            mock_jm.create_job.return_value = "job_pii_test_001"
+            mock_jm.create_job.return_value = {"job_id": "job_pii_test_001", "status": "created"}
             mock_jm.update_job.side_effect = lambda job_id, **kw: None
             mock_jm.update_customer_info.side_effect = lambda job_id, **kw: None
 
