@@ -77,6 +77,31 @@ except ImportError as _intake_ie:
     INTAKE_SOURCES = []
     CONSENT_LABELS = {}
 
+# ── Phase 7: キュー管理 ───────────────────────────────────────────────────────
+try:
+    from src.queue_manager import (
+        QUEUE_STATUSES,
+        QUEUE_STATUS_LABELS,
+        JOB_TYPES,
+        PIPELINE_STEPS,
+        create_queue_job,
+        load_queue_job,
+        update_queue_job,
+        list_queue_jobs,
+        get_queue_counts,
+        find_queue_job_for_job,
+        find_active_queue_job_for_job,
+        cancel_queue_job,
+        retry_queue_job,
+    )
+    _QUEUE_AVAILABLE = True
+except ImportError as _qm_ie:
+    _QUEUE_AVAILABLE = False
+    QUEUE_STATUSES = []
+    QUEUE_STATUS_LABELS = {}
+    JOB_TYPES = []
+    PIPELINE_STEPS = []
+
 
 # ── Phase 5: S3 / 納品ページ (try import — S3 未設定でもアプリは動く) ─────────
 try:
@@ -688,8 +713,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理"]
 )
 
 
@@ -3617,3 +3642,75 @@ with tab_intakes:
                     st.json(_masked)
 
 
+# ─── Tab 7: キュー管理 ─────────────────────────────────────────────────────────
+
+with tab_queue:
+    st.header("⚙️ キュー管理")
+
+    if not _QUEUE_AVAILABLE:
+        st.error("`src/queue_manager.py` が読み込めません。Phase 7 モジュールが見つかりません。")
+        st.stop()
+
+    # ── 件数サマリー ────────────────────────────────────────────────────────────
+    _counts = get_queue_counts()
+    _cnt_cols = st.columns(5)
+    for _ci, _cs in enumerate(["pending", "running", "completed", "failed", "cancelled"]):
+        _cnt_cols[_ci].metric(QUEUE_STATUS_LABELS.get(_cs, _cs), _counts.get(_cs, 0))
+
+    st.divider()
+
+    # ── キュー投入フォーム ──────────────────────────────────────────────────────
+    with st.expander("➕ ジョブをキューに投入"):
+        _enq_job_id = st.text_input("ジョブID", key="queue_enqueue_job_id")
+        _enq_type = st.selectbox("処理タイプ", JOB_TYPES, key="queue_enqueue_type")
+        if st.button("🚀 キューに投入", key="queue_enqueue_btn"):
+            if _enq_job_id:
+                try:
+                    _qjob = create_queue_job(_enq_job_id, job_type=_enq_type, source="manual")
+                    st.success(f"✅ キューに投入しました: `{_qjob['queue_id']}`")
+                    st.rerun()
+                except Exception as _qe:
+                    st.error(f"❌ エラー: {_qe}")
+            else:
+                st.warning("ジョブIDを入力してください。")
+
+    # ── キュー一覧 ──────────────────────────────────────────────────────────────
+    for _qs in ["running", "pending", "failed", "cancelled", "completed"]:
+        _qjobs = list_queue_jobs(status=_qs)
+        if not _qjobs:
+            continue
+        st.subheader(f"{QUEUE_STATUS_LABELS.get(_qs, _qs)} ({len(_qjobs)}件)")
+        for _qjob in _qjobs[:20]:
+            _qid = _qjob.get("queue_id", "?")
+            _jid = _qjob.get("job_id", "?")
+            _step = _qjob.get("current_step", "—")
+            with st.expander(f"{_qid} | job: {_jid} | step: {_step}"):
+                st.json({k: v for k, v in _qjob.items() if k != "steps"})
+                if _qjob.get("status") in ("pending", "running"):
+                    if st.button("❌ キャンセル", key=f"cancel_{_qid}"):
+                        try:
+                            cancel_queue_job(_qid)
+                            st.success("キャンセルしました。")
+                            st.rerun()
+                        except Exception as _ce:
+                            st.error(f"エラー: {_ce}")
+                if _qjob.get("status") in ("failed", "cancelled"):
+                    if st.button("🔄 リトライ", key=f"retry_{_qid}"):
+                        try:
+                            retry_queue_job(_qid)
+                            st.success("リトライキューに追加しました。")
+                            st.rerun()
+                        except Exception as _re:
+                            st.error(f"エラー: {_re}")
+                if _qjob.get("steps"):
+                    with st.expander("ステップ詳細"):
+                        st.json(_qjob["steps"])
+
+    st.divider()
+    st.markdown("**ワーカー起動方法:**")
+    st.code(
+        "# 1件だけ処理（テスト用）\npython worker.py --once\n\n"
+        "# 継続ポーリング（本番用）\npython worker.py --poll-interval 5\n\n"
+        "# 最大5件処理して終了\npython worker.py --max-jobs 5",
+        language="bash",
+    )

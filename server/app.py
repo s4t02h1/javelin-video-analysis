@@ -54,6 +54,14 @@ except ImportError:
 
 app = FastAPI(title="JVA Minimal SaaS")
 
+# ── Jobs API ルーター（Phase 7） ───────────────────────────────────────────────
+try:
+    from server.jobs_api import jobs_router
+    app.include_router(jobs_router, prefix="/v1")
+    logger.info("Jobs API ルーターを読み込みました。")
+except ImportError as _ie:
+    logger.warning("Jobs API ルーターの読み込みに失敗しました: %s", _ie)
+
 # ── intake API ルーター ────────────────────────────────────────────────────────
 try:
     from server.intake_api import intake_router
@@ -232,45 +240,6 @@ def _run_job(job_id: str, input_key: str) -> None:
 
 
 # ── エンドポイント ────────────────────────────────────────────────────────────
-
-@app.post("/v1/jobs")
-def create_job() -> JSONResponse:
-    """新規ジョブを作成し、入力動画アップロード用の presigned POST URL を返す。"""
-    job_id = str(uuid.uuid4())
-    key = f"uploads/{job_id}/input.mp4"
-    try:
-        upload_info = _presign_put(key, "video/mp4")
-    except Exception as exc:
-        logger.error("presigned POST 生成に失敗: %s", exc)
-        return JSONResponse({"error": str(exc)}, status_code=500)
-    return JSONResponse({"id": job_id, "upload": upload_info, "upload_key": key})
+# POST /v1/jobs, GET /v1/jobs/{job_id} は jobs_api ルーターに移行済み（Phase 7）
 
 
-@app.post("/v1/jobs/{job_id}/process")
-def process_job(job_id: str, payload: Dict[str, Any], bg: BackgroundTasks) -> JSONResponse:
-    """バックグラウンドで解析を開始する。"""
-    input_key: Optional[str] = payload.get("upload_key")
-    if not input_key:
-        return JSONResponse({"error": "upload_key is required"}, status_code=400)
-    bg.add_task(_run_job, job_id, input_key)
-    return JSONResponse({"id": job_id, "status": "queued"})
-
-
-@app.get("/v1/jobs/{job_id}")
-def get_status(job_id: str) -> JSONResponse:
-    """S3 から status.json を読み込んで返す。"""
-    try:
-        obj = _s3().get_object(Bucket=BUCKET, Key=_status_key(job_id))
-        body = obj["Body"].read().decode("utf-8")
-        return JSONResponse(json.loads(body))
-    except Exception as exc:
-        # NoSuchKey / ClientError どちらも pending 扱い
-        no_such_key = (
-            _botocore_exc is not None
-            and isinstance(exc, _botocore_exc.ClientError)
-            and exc.response.get("Error", {}).get("Code") == "NoSuchKey"
-        )
-        if no_such_key:
-            return JSONResponse({"status": "pending", "job_id": job_id})
-        logger.error("[%s] status.json 取得エラー: %s", job_id, exc)
-        return JSONResponse({"error": str(exc)}, status_code=500)

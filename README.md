@@ -1196,3 +1196,90 @@ any → archived
 | `.env.example` | Phase 6 環境変数の追加（変更） |
 | `tests/test_phase6.py` | Phase 6 ユニットテスト・44件（新規） |
 
+---
+
+## Phase 7: FastAPI 本格化・ジョブキュー・バックグラウンド処理
+
+### 概要
+
+動画解析のような重い処理を API リクエスト中に直接実行するのではなく、**ファイルベースのジョブキューに積み**、**ワーカーが順番に処理**し、解析・PDF 生成・ZIP 生成・S3 アップロード・納品 URL 生成まで自動または半自動で進められるようにしました。
+
+### API からジョブを作る流れ
+
+```bash
+# 1. ジョブを作成
+curl -X POST http://localhost:8000/v1/jobs \
+  -H "X-JVA-API-Key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"height_m": 1.75}'
+
+# 2. キューに投入
+curl -X POST http://localhost:8000/v1/jobs/{job_id}/enqueue \
+  -H "X-JVA-API-Key: your-key"
+
+# 3. ステータス確認
+curl http://localhost:8000/v1/jobs/{job_id}/queue-status \
+  -H "X-JVA-API-Key: your-key"
+
+# 4. ワーカーを起動（別ターミナル）
+python worker.py --poll-interval 5
+```
+
+### ワーカー起動方法
+
+```bash
+python worker.py              # 継続ポーリング（本番）
+python worker.py --once       # 1件のみ処理（テスト）
+python worker.py --max-jobs 5 # 5件処理して終了
+```
+
+### ジョブキューステータス
+
+| ステータス | 説明 |
+|---|---|
+| `pending` | 待機中（ワーカー取得待ち） |
+| `running` | ワーカーが処理中 |
+| `completed` | 正常完了 |
+| `failed` | 失敗（`last_error` に詳細） |
+| `cancelled` | キャンセル済み |
+
+### キャンセルとリトライ
+
+```bash
+# キャンセル
+curl -X POST http://localhost:8000/v1/jobs/{job_id}/cancel \
+  -H "X-JVA-API-Key: your-key"
+
+# リトライ（failed/cancelled → pending）
+curl -X POST http://localhost:8000/v1/jobs/{job_id}/retry \
+  -H "X-JVA-API-Key: your-key"
+```
+
+### S3 未設定時のローカル動作
+
+`JVA_BUCKET` を設定しなくても、ローカルでの解析・PDF 生成・ZIP 生成は正常に動作します。S3 アップロードと納品ページ生成のステップは自動的にスキップされます。
+
+### 管理画面でのキュー管理
+
+`streamlit run admin_app.py` を起動し、**⚙️ キュー管理** タブを開くと:
+
+- キュー件数のリアルタイム確認
+- 各キュージョブの詳細・ステップ履歴
+- キャンセル・リトライ操作
+- 手動でのキュー投入
+
+### Phase 7 で追加・変更されたファイル
+
+| ファイル | 説明 |
+|---|---|
+| `src/queue_manager.py` | ファイルベースキューの CRUD・ステータス遷移（新規） |
+| `worker.py` | ポーリングワーカー CLI（新規） |
+| `server/jobs_api.py` | FastAPI Jobs API ルーター（新規） |
+| `server/app.py` | jobs_api ルーター追加・旧エンドポイント削除（変更） |
+| `admin_app.py` | Tab 7 キュー管理追加（変更） |
+| `docs/background_worker.md` | バックグラウンドワーカー詳細ドキュメント（新規） |
+| `.env.example` | Phase 7 環境変数の追加（変更） |
+| `tests/test_phase7.py` | Phase 7 ユニットテスト（新規） |
+
+詳細は [docs/background_worker.md](docs/background_worker.md) を参照してください。
+
