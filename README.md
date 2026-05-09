@@ -915,3 +915,115 @@ SNS掲載許可ステータスは `customer_info.json` に保存されます。
 | `job_manager.py` | ステータス定数 (`JOB_STATUSES`, `JOB_STATUS_LABELS`) を追加。メタデータにニックネーム・競技歴・SNS許可（4値）・匿名化メモ・管理者メモ・受付日・納品予定メモ・納品済み日時を追加 |
 | `src/job_logger.py` | ジョブ別操作ログ (`jobs/<id>/logs/job_log.txt`) の書き込み・読み込みモジュール（新規） |
 | `admin_app.py` | ジョブ一覧にフィルタ機能・詳細情報を追加。ステータス変更・クイック操作ボタンを追加。顧客情報フォームを拡張。H. セクションにSNS許可確認メッセージ生成を追加。K. セクションに一括PDF再生成ボタンを追加。F. セクションに個別ZIP生成ボタンを追加 |
+
+---
+
+## Phase 3: 受付フォーム・顧客情報管理・プラン設計
+
+### 受付情報（intake_info.json）
+
+各ジョブには `jobs/<job_id>/intake_info.json` として受付情報が保存されます。  
+管理画面の「📝 N. 受付情報」セクションから入力・編集できます。
+
+**主な収集項目:**
+
+| カテゴリ | フィールド |
+|---|---|
+| 基本情報 | 名前/連絡先/年齢区分/性別/競技歴/自己ベスト/利き腕★/身長★/所属区分 |
+| 動画情報 | 撮影日/撮影状況/撮影角度★/動画種別★/スロー動画/動画本数/優先順位メモ |
+| 相談内容 | 一番見てほしい点★/フォーカスチェックボックス6項目/自由記述 |
+| 希望プラン | free_preview / light / data_sheet / full_report / comparison / undecided |
+| 同意事項 | 6項目のブーリアン（全 False がデフォルトの安全側） |
+
+★ = 解析・納品に特に重要な項目
+
+---
+
+### plans.yaml によるプラン設計
+
+`configs/plans.yaml` でサービスプランを定義できます。
+
+```yaml
+free_preview:
+  label: "無料プレビュー"
+  price_hint: "無料"
+  description: "まず解析の雰囲気を確認したい方向け"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - representative_frames
+    - preview_video
+light:
+  label: "ライト版"
+  ...
+```
+
+`src/plan_loader.py` がこのファイルを読み込み、管理画面・受付フォームに反映されます。  
+PyYAML が未インストールの場合もフォールバックで動作します。
+
+---
+
+### Googleフォームとの連携（CSVインポート）
+
+Googleフォームの回答CSVを管理画面「📥 CSVインポート」タブからインポートできます。
+
+**推奨手順:**
+
+1. `docs/google_form_template.md` の質問テンプレートをコピーしてGoogleフォームを作成
+2. 回答スプレッドシートを CSV でダウンロード
+3. 管理画面「📥 CSVインポート」タブでアップロード
+4. 列マッピングを確認（推奨タイトルなら自動マッピング）
+5. 行を選択して「🚀 取り込む」
+
+> 身長（cm）は 10 を超える場合に自動でメートル換算されます。
+
+---
+
+### 納品前チェックリスト
+
+各ジョブに `jobs/<job_id>/delivery_checklist.json` が保存されます。  
+管理画面「✅ L. 納品前チェックリスト」セクションから確認・更新できます。
+
+**チェック項目（13項目）:**
+
+1. 受付情報を確認した
+2. 利き腕を確認した（右/左）
+3. 身長を確認した
+4. 撮影角度を確認した
+5. PDFが生成されている
+6. 解析動画が生成されている
+7. 納品ZIPが生成されている
+8. ZIP内に「00_最初に読んでください.pdf」がある
+9. ZIP内に解析動画の見方PDFがある
+10. ZIP内に免責事項ファイルがある
+11. 希望プランと納品物の内容が一致している
+12. SNS掲載許可ステータスを確認した
+13. 納品メッセージを生成した
+
+全13項目がチェック済みになると「🎉 納品準備完了」と表示されます。
+
+---
+
+### 動画提出ガイド・同意事項テンプレート
+
+| ファイル | 用途 |
+|---|---|
+| `docs/video_submission_guide.md` | アスリート向け動画提出ガイド |
+| `docs/consent_template.md` | 同意事項テンプレート（Googleフォーム用文面） |
+| `docs/google_form_template.md` | Googleフォーム推奨質問項目 |
+
+---
+
+### Phase 3 で追加・変更されたファイル
+
+| ファイル | 内容 |
+|---|---|
+| `configs/plans.yaml` | サービスプラン定義（5プラン） |
+| `src/plan_loader.py` | plans.yaml 読み込みモジュール（新規） |
+| `job_manager.py` | `get_intake_info` / `update_intake_info` / `get_delivery_checklist` / `update_delivery_checklist` を追加 |
+| `admin_app.py` | 「📝 N. 受付情報」「✅ L. 納品前チェックリスト」「📥 CSVインポート」タブを追加 |
+| `docs/video_submission_guide.md` | アスリート向け動画提出ガイド（新規） |
+| `docs/consent_template.md` | 同意事項テンプレート（新規） |
+| `docs/google_form_template.md` | Googleフォーム推奨テンプレート（新規） |
+| `tests/test_phase3.py` | Phase 3 ユニットテスト（新規） |
+

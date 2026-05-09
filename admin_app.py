@@ -28,9 +28,13 @@ from job_manager import (
     collect_output_files,
     create_job,
     get_customer_info,
+    get_delivery_checklist,
+    get_intake_info,
     get_job_dir,
     list_jobs,
     update_customer_info,
+    update_delivery_checklist,
+    update_intake_info,
     update_job,
 )
 
@@ -605,8 +609,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート"]
 )
 
 
@@ -924,6 +928,260 @@ with tab_history:
                         st.video(_vb)
                 else:
                     st.warning("入力ファイルが見つかりません。")
+
+            # ══════════════════════════════════════════════════════════════════
+            # N. 受付情報（intake_info.json）
+            # ══════════════════════════════════════════════════════════════════
+            with st.expander("📝 N. 受付情報", expanded=False):
+                try:
+                    _ii = get_intake_info(selected_id)
+                except Exception as _ii_err:
+                    st.warning(f"受付情報の読み込みに失敗しました: {_ii_err}")
+                    _ii = {}
+
+                with st.form(key=f"intake_form_{selected_id}"):
+                    st.markdown("##### 基本情報")
+                    _ni_c1, _ni_c2, _ni_c3 = st.columns(3)
+                    with _ni_c1:
+                        _ni_name = st.text_input(
+                            "名前またはニックネーム ★",
+                            value=_ii.get("name_or_nickname", ""),
+                            placeholder="山田太郎 / タロウ",
+                        )
+                        _ni_contact = st.text_input(
+                            "連絡先",
+                            value=_ii.get("contact", ""),
+                            placeholder="@instagram_id or LINE名",
+                            help="個人情報のため慎重に扱ってください",
+                        )
+                        _ni_career = st.text_input(
+                            "競技歴 ★",
+                            value=_ii.get("athletic_career", ""),
+                            placeholder="やり投げ3年目、陸上部",
+                        )
+                        _ni_pb = st.text_input(
+                            "自己ベスト",
+                            value=_ii.get("personal_best", ""),
+                            placeholder="40m00",
+                        )
+                    with _ni_c2:
+                        _age_opts = ["", "中学生", "高校生", "大学生", "社会人", "マスターズ", "その他"]
+                        _ni_age_val = _ii.get("age_group", "")
+                        _ni_age = st.selectbox(
+                            "年齢区分",
+                            options=_age_opts,
+                            index=_age_opts.index(_ni_age_val) if _ni_age_val in _age_opts else 0,
+                        )
+                        _ni_gender = st.text_input(
+                            "性別（任意）",
+                            value=_ii.get("gender", ""),
+                            placeholder="任意",
+                        )
+                        _aff_opts = ["", "中学", "高校", "大学", "社会人", "マスターズ", "その他"]
+                        _ni_aff_val = _ii.get("affiliation_type", "")
+                        _ni_aff = st.selectbox(
+                            "所属区分",
+                            options=_aff_opts,
+                            index=_aff_opts.index(_ni_aff_val) if _ni_aff_val in _aff_opts else 0,
+                        )
+                        _arm_ii_opts = ["unknown", "right", "left"]
+                        _arm_ii_labels = {"unknown": "不明", "right": "右", "left": "左"}
+                        _ni_arm_val = _ii.get("dominant_arm", "unknown")
+                        _ni_arm = st.selectbox(
+                            "利き腕 ★",
+                            options=_arm_ii_opts,
+                            format_func=lambda x: _arm_ii_labels[x],
+                            index=_arm_ii_opts.index(_ni_arm_val) if _ni_arm_val in _arm_ii_opts else 0,
+                        )
+                        _ni_height = st.number_input(
+                            "身長 (m) ★",
+                            min_value=0.0, max_value=2.5,
+                            value=float(_ii.get("height_m") or 0.0),
+                            step=0.01, format="%.2f",
+                            help="0.00 は未設定扱いです",
+                        )
+                    with _ni_c3:
+                        _ni_filming_date = st.text_input(
+                            "撮影日",
+                            value=_ii.get("filming_date", ""),
+                            placeholder="2026-05-10",
+                        )
+                        _ctx_opts = ["", "大会", "練習", "その他"]
+                        _ni_ctx_val = _ii.get("filming_context", "")
+                        _ni_ctx = st.selectbox(
+                            "撮影状況",
+                            options=_ctx_opts,
+                            index=_ctx_opts.index(_ni_ctx_val) if _ni_ctx_val in _ctx_opts else 0,
+                        )
+                        _angle_ii_opts = ["unknown", "side", "diagonal_back", "front", "other"]
+                        _angle_ii_labels = {
+                            "unknown": "不明", "side": "横（側面）",
+                            "diagonal_back": "斜め後方", "front": "正面", "other": "その他",
+                        }
+                        _ni_angle_val = _ii.get("filming_angle", "unknown")
+                        _ni_angle = st.selectbox(
+                            "撮影角度 ★",
+                            options=_angle_ii_opts,
+                            format_func=lambda x: _angle_ii_labels[x],
+                            index=_angle_ii_opts.index(_ni_angle_val) if _ni_angle_val in _angle_ii_opts else 0,
+                        )
+                        _vtype_opts = ["", "全助走", "投げのみ", "部分練習", "その他"]
+                        _ni_vtype_val = _ii.get("video_type", "")
+                        _ni_vtype = st.selectbox(
+                            "動画種別 ★",
+                            options=_vtype_opts,
+                            index=_vtype_opts.index(_ni_vtype_val) if _ni_vtype_val in _vtype_opts else 0,
+                        )
+                        _ni_slow = st.checkbox(
+                            "スロー動画",
+                            value=bool(_ii.get("is_slow_motion", False)),
+                        )
+                        _ni_vcount = st.number_input(
+                            "動画本数",
+                            min_value=1, max_value=20,
+                            value=int(_ii.get("video_count") or 1),
+                        )
+
+                    st.markdown("##### 相談内容")
+                    _ni_focus_main = st.text_area(
+                        "一番見てほしい点 ★",
+                        value=_ii.get("focus_main", ""),
+                        height=80,
+                        placeholder="例: リリース時の肘の角度、助走のリズム など",
+                    )
+                    _ni_fc1, _ni_fc2, _ni_fc3 = st.columns(3)
+                    with _ni_fc1:
+                        _ni_f_approach  = st.checkbox("助走",     value=bool(_ii.get("focus_approach", False)),  key=f"ni_approach_{selected_id}")
+                        _ni_f_crossstep = st.checkbox("クロスステップ", value=bool(_ii.get("focus_crossstep", False)), key=f"ni_cs_{selected_id}")
+                    with _ni_fc2:
+                        _ni_f_block   = st.checkbox("ブロック",   value=bool(_ii.get("focus_block", False)),   key=f"ni_block_{selected_id}")
+                        _ni_f_release = st.checkbox("リリース",   value=bool(_ii.get("focus_release", False)), key=f"ni_release_{selected_id}")
+                    with _ni_fc3:
+                        _ni_f_upper = st.checkbox("上半身", value=bool(_ii.get("focus_upper_body", False)), key=f"ni_upper_{selected_id}")
+                        _ni_f_lower = st.checkbox("下半身", value=bool(_ii.get("focus_lower_body", False)), key=f"ni_lower_{selected_id}")
+                    _ni_focus_other = st.text_input(
+                        "その他の相談内容",
+                        value=_ii.get("focus_other", ""),
+                        placeholder="自由記述",
+                    )
+                    _ni_prio = st.text_area(
+                        "動画の優先順位・メモ",
+                        value=_ii.get("video_priority_note", ""),
+                        height=60,
+                        placeholder="例: 1本目が一番いい試技、2本目はフォーム崩れ",
+                    )
+                    _ni_vmemo = st.text_area(
+                        "動画に関するメモ",
+                        value=_ii.get("video_memo", ""),
+                        height=60,
+                    )
+
+                    st.markdown("##### 希望プラン")
+                    try:
+                        from src.plan_loader import load_plans as _load_plans_ii
+                        _plans_ii = _load_plans_ii()
+                    except Exception:
+                        _plans_ii = {"free_preview": {"label": "無料プレビュー"}, "light": {"label": "ライト版"}, "data_sheet": {"label": "データシート版"}, "full_report": {"label": "フルレポート版"}, "comparison": {"label": "2動画比較版"}}
+                    _plan_ii_opts = list(_plans_ii.keys()) + ["undecided"]
+                    _plan_ii_labels = {k: v.get("label", k) for k, v in _plans_ii.items()}
+                    _plan_ii_labels["undecided"] = "未定"
+                    _ni_desired_plan_val = _ii.get("desired_plan", "free_preview")
+                    _ni_desired_plan = st.selectbox(
+                        "希望プラン ★",
+                        options=_plan_ii_opts,
+                        format_func=lambda x: _plan_ii_labels.get(x, x),
+                        index=_plan_ii_opts.index(_ni_desired_plan_val) if _ni_desired_plan_val in _plan_ii_opts else 0,
+                    )
+
+                    st.markdown("##### 同意事項")
+                    st.caption("以下の各項目にご同意いただいた場合はチェックをつけてください。")
+                    _ni_con1 = st.checkbox(
+                        "本解析は参考資料であり、絶対評価ではないことに同意します",
+                        value=bool(_ii.get("consent_analysis_reference", False)),
+                        key=f"con1_{selected_id}",
+                    )
+                    _ni_con2 = st.checkbox(
+                        "本解析は医療診断・怪我の診断の代替ではないことに同意します",
+                        value=bool(_ii.get("consent_not_medical", False)),
+                        key=f"con2_{selected_id}",
+                    )
+                    _ni_con3 = st.checkbox(
+                        "本解析は専門的な競技指導の代替ではないことに同意します",
+                        value=bool(_ii.get("consent_not_coaching", False)),
+                        key=f"con3_{selected_id}",
+                    )
+                    _ni_con4 = st.checkbox(
+                        "動画の画質・撮影角度・服装・背景により解析精度が変わることに同意します",
+                        value=bool(_ii.get("consent_accuracy_varies", False)),
+                        key=f"con4_{selected_id}",
+                    )
+                    _ni_con5 = st.checkbox(
+                        "解析・納品まで時間がかかる場合があることに同意します",
+                        value=bool(_ii.get("consent_delivery_time", False)),
+                        key=f"con5_{selected_id}",
+                    )
+                    _ni_con6 = st.checkbox(
+                        "SNSへの掲載は別途許可制であることに同意します",
+                        value=bool(_ii.get("consent_sns_separate", False)),
+                        key=f"con6_{selected_id}",
+                    )
+                    _consent_count = sum([_ni_con1, _ni_con2, _ni_con3, _ni_con4, _ni_con5, _ni_con6])
+                    if _consent_count < 6:
+                        st.warning(f"⚠️ 同意事項: {_consent_count}/6 項目が未同意です。")
+                    else:
+                        st.success("✅ 全同意事項に同意済みです。")
+
+                    _ni_save = st.form_submit_button("💾 受付情報を保存", type="primary")
+                    if _ni_save:
+                        update_intake_info(
+                            selected_id,
+                            name_or_nickname=_ni_name,
+                            contact=_ni_contact,
+                            age_group=_ni_age,
+                            gender=_ni_gender,
+                            athletic_career=_ni_career,
+                            personal_best=_ni_pb,
+                            dominant_arm=_ni_arm,
+                            height_m=_ni_height if _ni_height > 0 else None,
+                            affiliation_type=_ni_aff,
+                            filming_date=_ni_filming_date,
+                            filming_context=_ni_ctx,
+                            filming_angle=_ni_angle,
+                            video_type=_ni_vtype,
+                            is_slow_motion=_ni_slow,
+                            video_count=int(_ni_vcount),
+                            video_priority_note=_ni_prio,
+                            video_memo=_ni_vmemo,
+                            focus_main=_ni_focus_main,
+                            focus_approach=_ni_f_approach,
+                            focus_crossstep=_ni_f_crossstep,
+                            focus_block=_ni_f_block,
+                            focus_release=_ni_f_release,
+                            focus_upper_body=_ni_f_upper,
+                            focus_lower_body=_ni_f_lower,
+                            focus_other=_ni_focus_other,
+                            desired_plan=_ni_desired_plan,
+                            consent_analysis_reference=_ni_con1,
+                            consent_not_medical=_ni_con2,
+                            consent_not_coaching=_ni_con3,
+                            consent_accuracy_varies=_ni_con4,
+                            consent_delivery_time=_ni_con5,
+                            consent_sns_separate=_ni_con6,
+                        )
+                        # 顧客情報との同期（利き腕・身長・競技歴）
+                        update_customer_info(
+                            selected_id,
+                            dominant_arm=_ni_arm,
+                            dominant_hand=_ni_arm,
+                            height_m=_ni_height if _ni_height > 0 else None,
+                            athletic_career=_ni_career,
+                        )
+                        st.success("✅ 受付情報を保存しました。")
+                        st.rerun()
+                st.caption(
+                    f"updated_at: {_ii.get('updated_at', '—')}  ·  "
+                    f"★ = 解析・納品に特に重要な項目"
+                )
 
             # ══════════════════════════════════════════════════════════════════
             # I. 解析ログ（job_log.txt も含む）
@@ -1987,6 +2245,60 @@ with tab_history:
                     )
                     st.caption("返答後は「G. 顧客情報」欄の「SNS掲載許可ステータス」を更新してください。")
 
+            # ══════════════════════════════════════════════════════════════════
+            # L. 納品前チェックリスト
+            # ══════════════════════════════════════════════════════════════════
+            with st.expander("✅ L. 納品前チェックリスト", expanded=False):
+                try:
+                    _cl = get_delivery_checklist(selected_id)
+                except Exception as _cl_err:
+                    st.warning(f"チェックリストの読み込みに失敗しました: {_cl_err}")
+                    _cl = {}
+
+                _cl_items = {
+                    "chk_intake_confirmed":         "📝 受付情報が入力・確認されている",
+                    "chk_dominant_arm":             "💪 利き腕が設定されている（右/左）",
+                    "chk_height":                   "📏 身長が設定されている（0m以外）",
+                    "chk_filming_angle":            "🎥 撮影角度が確認されている",
+                    "chk_pdf_generated":            "📄 PDFが生成されている",
+                    "chk_analysis_video":           "🎬 解析動画が生成されている",
+                    "chk_zip_generated":            "🗜️ 納品ZIPが生成されている",
+                    "chk_readme_in_zip":            "📋 ZIP内に「00_最初に読んでください.pdf」がある",
+                    "chk_instruction_pdf":          "📖 ZIP内に解析動画の見方PDFがある",
+                    "chk_disclaimer_in_zip":        "⚖️ ZIP内に免責事項ファイルがある",
+                    "chk_plan_matches_deliverables":"🎯 希望プランと納品物の内容が一致している",
+                    "chk_sns_permission":           "📸 SNS掲載許可ステータスが確認されている",
+                    "chk_delivery_message_ready":   "✉️ 納品メッセージが生成されている",
+                }
+                _checked_vals = {k: bool(_cl.get(k, False)) for k in _cl_items}
+                _checked_count = sum(_checked_vals.values())
+                _total_count   = len(_cl_items)
+                st.progress(
+                    _checked_count / _total_count if _total_count > 0 else 0.0,
+                    text=f"進捗: {_checked_count} / {_total_count}",
+                )
+                if _checked_count < _total_count:
+                    st.warning(f"⚠️ {_total_count - _checked_count} 項目が未チェックです。")
+                else:
+                    st.success("🎉 全項目チェック済み！納品準備完了です。")
+
+                _new_cl: dict = {}
+                _cl_col1, _cl_col2 = st.columns(2)
+                _cl_keys  = list(_cl_items.keys())
+                _cl_half  = (_total_count + 1) // 2
+                for _i, (_k, _label) in enumerate(_cl_items.items()):
+                    _col_target = _cl_col1 if _i < _cl_half else _cl_col2
+                    with _col_target:
+                        _new_cl[_k] = st.checkbox(
+                            _label,
+                            value=_checked_vals[_k],
+                            key=f"cl_{_k}_{selected_id}",
+                        )
+                if st.button("💾 チェックリストを保存", key=f"cl_save_{selected_id}"):
+                    update_delivery_checklist(selected_id, **_new_cl)
+                    st.success("✅ チェックリストを保存しました。")
+                    st.rerun()
+                st.caption(f"updated_at: {_cl.get('updated_at', '—')}")
 
 
 # ─── Tab 3: ジョブ比較 ────────────────────────────────────────────────────────
@@ -2192,3 +2504,172 @@ with tab_compare:
 
 with tab_checklist:
     render_operation_checklist_tab()
+
+
+# ─── Tab 5: GoogleフォームCSVインポート ───────────────────────────────────────
+
+with tab_import:
+    st.header("📥 GoogleフォームCSVインポート")
+    st.caption(
+        "GoogleフォームのCSVエクスポートをアップロードし、受付情報として取り込みます。"
+        "新規ジョブを作成して intake_info.json に保存します。"
+        "Googleフォームの列名は柔軟にマッピングできます。"
+    )
+
+    _csv_file = st.file_uploader("CSVファイルをアップロード", type=["csv"])
+
+    if _csv_file is not None:
+        try:
+            import io as _io
+            _df = pd.read_csv(_io.BytesIO(_csv_file.read()))
+            st.success(f"✅ {len(_df)} 行、{len(_df.columns)} 列のデータを読み込みました。")
+        except Exception as _csv_err:
+            st.error(f"CSVの読み込みに失敗しました: {_csv_err}")
+            _df = None
+
+        if _df is not None and len(_df) > 0:
+            st.markdown("#### 列マッピング")
+            st.caption("CSVの列名を受付情報のフィールドへマッピングしてください（不要な列は「（スキップ）」を選択）。")
+
+            _intake_field_labels = {
+                "(skip)":            "（スキップ）",
+                "name_or_nickname":  "名前またはニックネーム",
+                "contact":           "連絡先",
+                "age_group":         "年齢区分",
+                "gender":            "性別",
+                "athletic_career":   "競技歴",
+                "personal_best":     "自己ベスト",
+                "dominant_arm":      "利き腕",
+                "height_m":          "身長(m)",
+                "affiliation_type":  "所属区分",
+                "filming_date":      "撮影日",
+                "filming_context":   "撮影状況",
+                "filming_angle":     "撮影角度",
+                "video_type":        "動画種別",
+                "video_count":       "動画本数",
+                "video_priority_note": "動画優先順位メモ",
+                "video_memo":        "動画メモ",
+                "focus_main":        "一番見てほしい点",
+                "focus_other":       "その他相談内容",
+                "desired_plan":      "希望プラン",
+            }
+            _skip_label  = "(skip)"
+            _field_opts  = list(_intake_field_labels.keys())
+            _field_labels_list = [_intake_field_labels[k] for k in _field_opts]
+
+            # 自動推測: 列名から近い候補を選ぶ
+            def _guess_field(col: str) -> str:
+                _col_lower = col.lower()
+                _hints = {
+                    "name_or_nickname": ["名前", "ニックネーム", "name", "nickname"],
+                    "contact":          ["連絡先", "contact", "sns", "instagram", "line"],
+                    "age_group":        ["年齢区分", "年齢", "age"],
+                    "gender":           ["性別", "gender", "sex"],
+                    "athletic_career":  ["競技歴", "キャリア", "career"],
+                    "personal_best":    ["自己ベスト", "pb", "best"],
+                    "dominant_arm":     ["利き腕", "dominant", "arm"],
+                    "height_m":         ["身長", "height"],
+                    "affiliation_type": ["所属", "affiliation"],
+                    "filming_date":     ["撮影日", "filming_date", "date"],
+                    "filming_context":  ["撮影状況", "大会", "練習", "context"],
+                    "video_type":       ["動画種別", "全助走", "video_type"],
+                    "video_count":      ["動画本数", "本数", "video_count", "count"],
+                    "focus_main":       ["見てほしい", "相談", "focus", "request"],
+                    "desired_plan":     ["希望プラン", "plan"],
+                }
+                for _fk, _kws in _hints.items():
+                    for _kw in _kws:
+                        if _kw.lower() in _col_lower:
+                            return _fk
+                return _skip_label
+
+            _mapping: dict[str, str] = {}
+            _map_cols = st.columns(3)
+            for _ci2, _col_name in enumerate(_df.columns):
+                _default_field = _guess_field(_col_name)
+                _default_idx   = _field_opts.index(_default_field)
+                with _map_cols[_ci2 % 3]:
+                    _chosen = st.selectbox(
+                        f"`{_col_name}`",
+                        options=_field_opts,
+                        format_func=lambda x: _intake_field_labels[x],
+                        index=_default_idx,
+                        key=f"csv_map_{_ci2}",
+                    )
+                    _mapping[_col_name] = _chosen
+
+            st.markdown("#### 取り込む行を選択")
+            _row_labels = [f"行 {_ri + 1}: {_df.iloc[_ri].values[:3].tolist()}" for _ri in range(len(_df))]
+            _selected_rows = st.multiselect(
+                "取り込む行",
+                options=list(range(len(_df))),
+                format_func=lambda i: _row_labels[i],
+                default=list(range(min(len(_df), 5))),
+            )
+
+            if st.button("🚀 選択行を新規ジョブとして取り込む", type="primary", key="csv_import_btn"):
+                if not _selected_rows:
+                    st.warning("取り込む行が選択されていません。")
+                else:
+                    _import_errors: list[str] = []
+                    _import_success = 0
+                    for _ri in _selected_rows:
+                        try:
+                            _row = _df.iloc[_ri]
+                            _new_jid = create_job()
+                            _intake_kwargs: dict = {}
+                            for _col_n, _field_k in _mapping.items():
+                                if _field_k == _skip_label:
+                                    continue
+                                _raw_val = _row.get(_col_n)
+                                if pd.isna(_raw_val):
+                                    continue
+                                if _field_k == "height_m":
+                                    try:
+                                        _intake_kwargs[_field_k] = float(str(_raw_val).replace("cm", "").replace("m", "").strip())
+                                        # cmで入力されている場合は自動変換
+                                        if _intake_kwargs[_field_k] > 10:
+                                            _intake_kwargs[_field_k] = round(_intake_kwargs[_field_k] / 100.0, 2)
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif _field_k == "video_count":
+                                    try:
+                                        _intake_kwargs[_field_k] = int(_raw_val)
+                                    except (ValueError, TypeError):
+                                        pass
+                                else:
+                                    _intake_kwargs[_field_k] = str(_raw_val).strip()
+                            update_intake_info(_new_jid, **_intake_kwargs)
+                            _import_success += 1
+                        except Exception as _row_err:
+                            _import_errors.append(f"行 {_ri + 1}: {_row_err}")
+                    if _import_success:
+                        st.success(f"✅ {_import_success} 件のジョブを作成しました。")
+                    if _import_errors:
+                        for _em in _import_errors:
+                            st.error(f"❌ エラー: {_em}")
+                    if _import_success:
+                        st.info("「📋 ジョブ履歴」タブで確認してください。")
+    else:
+        st.info("CSVファイルをアップロードしてください。")
+        with st.expander("📋 Googleフォームの列名ガイド（推奨）", expanded=False):
+            st.markdown("""
+フォームの質問タイトルに以下のキーワードを含めると自動マッピングされます：
+
+| 推奨質問タイトル | マッピング先 |
+|---|---|
+| 名前またはニックネーム | 名前またはニックネーム |
+| 連絡先（SNS/LINE名） | 連絡先 |
+| 年齢区分 | 年齢区分 |
+| 競技歴 | 競技歴 |
+| 自己ベスト | 自己ベスト |
+| 利き腕 | 利き腕 |
+| 身長（cm） | 身長（cmで入力した場合は自動でmに変換） |
+| 所属区分 | 所属区分 |
+| 撮影日 | 撮影日 |
+| 一番見てほしい点 | 一番見てほしい点 |
+| 希望プラン | 希望プラン |
+
+詳細は `docs/video_submission_guide.md` と `docs/google_form_template.md` を参照してください。
+""")
+

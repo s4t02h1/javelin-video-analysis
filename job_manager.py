@@ -284,3 +284,142 @@ def update_customer_info(job_id: str, **kwargs) -> dict:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
     return info
+
+
+# ── 受付情報 (intake_info.json) ───────────────────────────────────────────────
+
+_INTAKE_INFO_DEFAULTS: dict = {
+    # ── 基本情報
+    "name_or_nickname":     "",   # 名前またはニックネーム
+    "contact":              "",   # 連絡先
+    "age_group":            "",   # 年齢区分: 中学生 / 高校生 / 大学生 / 社会人 / マスターズ / その他
+    "gender":               "",   # 性別（任意）
+    "athletic_career":      "",   # 競技歴
+    "personal_best":        "",   # 自己ベスト
+    "dominant_arm":         "unknown",  # right / left / unknown
+    "height_m":             None,
+    "affiliation_type":     "",   # 中学 / 高校 / 大学 / 社会人 / マスターズ / その他
+    # ── 動画情報
+    "filming_date":         "",   # 撮影日
+    "filming_context":      "",   # 大会 / 練習 / その他
+    "filming_angle":        "unknown",  # side / diagonal_back / front / other
+    "video_type":           "",   # 全助走 / 投げのみ / 部分練習 / その他
+    "is_slow_motion":       False,
+    "video_count":          1,
+    "video_priority_note":  "",   # 解析したい優先順位メモ
+    "video_memo":           "",
+    # ── 相談内容
+    "focus_main":           "",   # 一番見てほしい点（自由記述）
+    "focus_approach":       False,  # 助走
+    "focus_crossstep":      False,  # クロスステップ
+    "focus_block":          False,  # ブロック
+    "focus_release":        False,  # リリース
+    "focus_upper_body":     False,  # 上半身
+    "focus_lower_body":     False,  # 下半身
+    "focus_other":          "",   # その他自由記述
+    # ── 希望プラン
+    "desired_plan":         "free_preview",  # free_preview / light / data_sheet / full_report / comparison / undecided
+    # ── 同意事項（False = 未同意 が安全側デフォルト）
+    "consent_analysis_reference":  False,  # 解析は参考資料であることに同意
+    "consent_not_medical":         False,  # 医療診断・怪我の診断ではないことに同意
+    "consent_not_coaching":        False,  # 専門的な競技指導の代替ではないことに同意
+    "consent_accuracy_varies":     False,  # 動画の画質・角度により精度が変わることに同意
+    "consent_delivery_time":       False,  # 納品まで時間がかかる場合があることに同意
+    "consent_sns_separate":        False,  # SNS掲載は別途許可制であることに同意
+    # ── タイムスタンプ
+    "created_at":           "",
+    "updated_at":           "",
+}
+
+
+def _intake_info_path(job_id: str) -> Path:
+    return JOBS_DIR / job_id / "intake_info.json"
+
+
+def get_intake_info(job_id: str) -> dict:
+    """intake_info.json を読み込んで返す。
+
+    ファイルが存在しない・壊れている場合はデフォルト値を返す（管理画面を落とさない）。
+    既存ジョブに未追加フィールドがある場合はデフォルト値でマージ（前方互換）。
+    """
+    import logging as _log
+    path = _intake_info_path(job_id)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+        except (json.JSONDecodeError, OSError) as _e:
+            _log.warning("[job_manager] intake_info.json 読み込み失敗 (%s): %s", job_id, _e)
+            now = datetime.now().isoformat(timespec="seconds")
+            return {**_INTAKE_INFO_DEFAULTS, "created_at": now, "updated_at": now}
+        return {**_INTAKE_INFO_DEFAULTS, **data}
+    now = datetime.now().isoformat(timespec="seconds")
+    return {**_INTAKE_INFO_DEFAULTS, "created_at": now, "updated_at": now}
+
+
+def update_intake_info(job_id: str, **kwargs) -> dict:
+    """intake_info.json の指定フィールドを更新して保存する。"""
+    info = get_intake_info(job_id)
+    existing_created = info.get("created_at") or ""
+    info.update(kwargs)
+    if existing_created:
+        info["created_at"] = existing_created
+    elif not info.get("created_at"):
+        info["created_at"] = datetime.now().isoformat(timespec="seconds")
+    info["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = _intake_info_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(info, f, ensure_ascii=False, indent=2)
+    return info
+
+
+# ── 納品前チェックリスト (delivery_checklist.json) ────────────────────────────
+
+_DELIVERY_CHECKLIST_DEFAULTS: dict = {
+    "chk_intake_confirmed":       False,  # 受付情報を確認した
+    "chk_dominant_arm":           False,  # 利き腕を確認した
+    "chk_height":                 False,  # 身長を確認した
+    "chk_filming_angle":          False,  # 動画の撮影角度を確認した
+    "chk_pdf_generated":          False,  # PDFが生成されている
+    "chk_analysis_video":         False,  # 解析動画が生成されている
+    "chk_zip_generated":          False,  # ZIPが生成されている
+    "chk_readme_in_zip":          False,  # 00_最初に読んでください.pdf が含まれている
+    "chk_instruction_pdf":        False,  # 解析動画の見方PDFが含まれている
+    "chk_disclaimer_in_zip":      False,  # 免責事項が含まれている
+    "chk_plan_matches_deliverables": False,  # 希望プランと納品物が一致している
+    "chk_sns_permission":         False,  # SNS掲載許可ステータスを確認した
+    "chk_delivery_message_ready": False,  # 納品メッセージを生成した
+    "updated_at":                 "",
+}
+
+
+def _delivery_checklist_path(job_id: str) -> Path:
+    return JOBS_DIR / job_id / "delivery_checklist.json"
+
+
+def get_delivery_checklist(job_id: str) -> dict:
+    """delivery_checklist.json を読み込んで返す。存在しない場合はデフォルトを返す。"""
+    import logging as _log
+    path = _delivery_checklist_path(job_id)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+            return {**_DELIVERY_CHECKLIST_DEFAULTS, **data}
+        except (json.JSONDecodeError, OSError) as _e:
+            _log.warning("[job_manager] delivery_checklist.json 読み込み失敗 (%s): %s", job_id, _e)
+    return dict(_DELIVERY_CHECKLIST_DEFAULTS)
+
+
+def update_delivery_checklist(job_id: str, **kwargs) -> dict:
+    """delivery_checklist.json を更新して保存する。"""
+    chk = get_delivery_checklist(job_id)
+    chk.update(kwargs)
+    chk["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = _delivery_checklist_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(chk, f, ensure_ascii=False, indent=2)
+    return chk
+

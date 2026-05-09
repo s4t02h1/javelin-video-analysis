@@ -1,0 +1,85 @@
+# configs/plans.yaml — Javelin Video Analysis プラン定義
+#
+# 各プランの成果物リストは deliverable_packager.py / admin_app.py で参照されます。
+# includes に指定できるキー:
+#   readme_pdf              00_最初に読んでください.pdf
+#   video_instruction_pdf   解析動画の見方.pdf
+#   athlete_summary_pdf     選手向けサマリー.pdf
+#   key_frame_sheet         代表フレームシート.pdf
+#   graph_explanation_pdf   グラフ解説.pdf
+#   coach_review_sheet      コーチ向けレビューシート.pdf
+#   full_report_pdf         report.pdf（詳細解析レポート）
+#   preview_video           プレビュー動画（1本）
+#   all_videos              全解析動画
+#   selected_videos         選択した動画
+#   representative_frames   代表フレーム画像（先頭3枚）
+#   all_frames              代表フレーム画像（全枚）
+#   pose_landmarks_csv      pose_landmarks.csv
+#   analysis_summary_json   analysis_summary.json
+#   comparison_report_pdf   比較レポートPDF
+#   comparison_graphs       比較グラフ画像
+
+free_preview:
+  label: "無料プレビュー"
+  price_hint: "無料"
+  description: "まず解析の雰囲気を確認したい方向け"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - representative_frames
+    - preview_video
+
+light:
+  label: "ライト版"
+  price_hint: "500〜1000円"
+  description: "選手本人がスマホで確認しやすい簡易版"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - athlete_summary_pdf
+    - key_frame_sheet
+    - graph_explanation_pdf
+
+data_sheet:
+  label: "データシート版"
+  price_hint: "1500〜3000円"
+  description: "PDFとデータをまとめて受け取りたい方向け"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - athlete_summary_pdf
+    - graph_explanation_pdf
+    - key_frame_sheet
+    - all_videos
+    - all_frames
+    - pose_landmarks_csv
+    - analysis_summary_json
+
+full_report:
+  label: "フルレポート版"
+  price_hint: "3000〜5000円"
+  description: "詳細に振り返りたい選手・コーチ向け"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - athlete_summary_pdf
+    - graph_explanation_pdf
+    - key_frame_sheet
+    - coach_review_sheet
+    - full_report_pdf
+    - all_videos
+    - all_frames
+    - pose_landmarks_csv
+    - analysis_summary_json
+
+comparison:
+  label: "2動画比較版"
+  price_hint: "3000円〜"
+  description: "試合前後・改善前後など2本の動画を比較したい方向け"
+  includes:
+    - readme_pdf
+    - video_instruction_pdf
+    - comparison_report_pdf
+    - comparison_graphs
+    - key_frame_sheet
+    - selected_videos
