@@ -1526,4 +1526,96 @@ Phase 9 で対応している支払い方法：
 | `docs/legal/disclaimer_draft.md` | 免責事項ドラフト（新規） |
 | `tests/test_phase9.py` | Phase 9 ユニットテスト（新規） |
 
+---
+
+## Phase 10: 自動フェーズ推定・解析精度向上
+
+Phase 10 では、MediaPipe の姿勢推定データ（`pose_landmarks.csv`）からやり投げの各投てきフェーズ候補を**ルールベースで自動抽出**する機能を追加しました。
+
+> ⚠️ **自動推定結果は「候補」です。最終的なフェーズ指定は管理者が確認・修正してください。**
+> 競技指導・医療診断の代替ではありません。
+
+### Phase 10 の方針
+
+- **完全自動化を目指さない**: 自動推定は候補提示にとどめ、手動確認を必須とする設計
+- **機械学習モデル不使用**: MediaPipe 座標と時系列特徴量のみのルールベース推定
+- `require_admin_review: true` がデフォルト: 自動推定は `phase_frames.json` を**絶対に上書きしない**
+- エラー耐性: 自動推定に失敗しても、通常の解析処理全体が止まらない
+
+### 自動推定フェーズ一覧
+
+| フェーズキー | 内容 | 推定手法 |
+|---|---|---|
+| `approach_start/end` | 助走 | 動画開始フレーム / クロスステップ前 |
+| `cross_step_start/end` | クロスステップ | 左右足首 x 座標の交差検出 |
+| `withdrawal_start/end` | 槍を引く局面 | 手首と肩の距離変化 |
+| `block` | ブロック | 前脚足首の移動最小点 |
+| `release` | リリース | 投げ腕手首の速度ピーク + 高さ |
+| `follow_through_start/end` | フォロースルー | リリースから ±0.5秒 |
+| `recovery_start/end` | リカバリー | フォロースルー終了〜動画末尾 |
+
+### 信頼度スコア
+
+| スコア | ラベル |
+|---|---|
+| 0.75 以上 | 推定精度 高め |
+| 0.45〜0.74 | 推定精度 中程度 |
+| 0.44 以下 | 推定精度 低め（要確認） |
+
+### 動画品質チェック
+
+`check_video_quality_for_job()` で以下を評価します：
+
+- FPS（推奨 24 FPS 以上）
+- 動画長（推奨 2 秒以上）
+- 姿勢検出率（推奨 60% 以上）
+- ランドマーク欠損率（各部位）
+- 身体の画面外カット率
+
+品質評価: `good` / `medium` / `low`
+
+### 出力ファイル
+
+| ファイル | 内容 |
+|---|---|
+| `report/phase_detection_result.json` | 自動推定結果（フレーム・信頼度・理由） |
+| `report/phase_corrections.json` | 管理者による修正履歴 |
+| `report/video_quality_report.json` | 動画品質チェック結果 |
+
+### 管理画面での操作（Phase 10 UI）
+
+ジョブ詳細ページの「🔍 P10. 自動フェーズ推定」エクスパンダーで:
+
+1. 「🤖 自動フェーズ推定を実行」ボタンで推定実行
+2. 「📊 動画品質チェックを実行」ボタンで品質確認
+3. 各フェーズの候補を確認し、「✅ この候補を採用」で `phase_frames.json` に反映
+4. 手動修正フレーム番号を入力して「💾 修正を保存」
+
+**採用ボタンを押すまで `phase_frames.json` は変更されません。**
+
+### 設定ファイル: `configs/phase_detection.yaml`
+
+```yaml
+enabled: true
+require_admin_review: true        # 自動採用を禁止（必ず管理者確認）
+min_confidence_for_auto_accept: 0.85
+quality_thresholds:
+  min_pose_detection_rate: 0.60
+  min_fps: 24.0
+  min_duration_sec: 2.0
+  max_landmark_missing_rate: 0.40
+```
+
+### Phase 10 で追加・変更されたファイル
+
+| ファイル | 内容 |
+|---|---|
+| `configs/phase_detection.yaml` | フェーズ推定・品質チェック設定（新規） |
+| `src/analysis/__init__.py` | パッケージ初期化（新規） |
+| `src/analysis/phase_detection.py` | ルールベース自動フェーズ推定（新規） |
+| `src/analysis/video_quality.py` | 動画品質チェック（新規） |
+| `worker.py` | `check_video_quality` / `detect_phases` ステップ追加 |
+| `admin_app.py` | 「🔍 P10. 自動フェーズ推定」UI 追加 |
+| `src/phase_summary_pdf.py` | フェーズ別 PDF に自動推定候補情報を追加 |
+| `tests/test_phase10.py` | Phase 10 ユニットテスト 36 件（新規） |
 

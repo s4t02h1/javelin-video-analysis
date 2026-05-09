@@ -106,6 +106,22 @@ def _import_intro_pdf_generator():
         return None
 
 
+def _import_phase_detection():
+    try:
+        from src.analysis.phase_detection import detect_phases_for_job
+        return detect_phases_for_job
+    except ImportError:
+        return None
+
+
+def _import_video_quality():
+    try:
+        from src.analysis.video_quality import check_video_quality_for_job
+        return check_video_quality_for_job
+    except ImportError:
+        return None
+
+
 def _import_artifact_manifest():
     try:
         import src.artifact_manifest as am
@@ -220,6 +236,39 @@ def _step_generate_artifacts(job_id: str, job_dir: Path) -> List[str]:
         raise ValueError("解析出力ファイルが生成されませんでした。")
     logger.info("[worker] generate_artifacts: %d ファイル確認", len(files))
     return files
+
+
+def _step_check_video_quality(job_id: str, job_dir: Path) -> None:
+    """動画品質チェックを実行して video_quality_report.json を生成する（非致命的）。
+
+    Phase 10 追加ステップ。失敗しても通常の解析処理は継続する。
+    """
+    fn = _import_video_quality()
+    if fn is None:
+        logger.info("[worker] video_quality モジュール未使用: job_id=%s", job_id)
+        return
+    try:
+        out = fn(job_dir)
+        logger.info("[worker] check_video_quality 完了: %s", out.name)
+    except Exception as e:
+        logger.warning("[worker] check_video_quality 失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_detect_phases(job_id: str, job_dir: Path) -> None:
+    """自動フェーズ推定を実行して phase_detection_result.json を生成する（非致命的）。
+
+    Phase 10 追加ステップ。失敗しても通常の解析処理は継続する。
+    require_admin_review=true (デフォルト) のため、自動推定は手動フェーズ指定を上書きしない。
+    """
+    fn = _import_phase_detection()
+    if fn is None:
+        logger.info("[worker] phase_detection モジュール未使用: job_id=%s", job_id)
+        return
+    try:
+        out = fn(job_dir)
+        logger.info("[worker] detect_phases 完了: %s", out.name)
+    except Exception as e:
+        logger.warning("[worker] detect_phases 失敗（継続）: job_id=%s error=%s", job_id, e)
 
 
 def _step_generate_reports(job_id: str, job_dir: Path) -> List[str]:
@@ -415,14 +464,18 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
 
     # ─ ステップ定義（致命的: validate_inputs / run_analysis / generate_artifacts）─
     pipeline_steps = {
-        "validate_inputs":    lambda: _step_validate_inputs(job_id, job_dir),
-        "run_analysis":       lambda: _step_run_analysis(job_id, job_dir, job),
-        "generate_artifacts": lambda: _step_generate_artifacts(job_id, job_dir),
-        "generate_reports":   lambda: _step_generate_reports(job_id, job_dir),
-        "generate_packages":  lambda: _step_generate_packages(job_id, job_dir),
-        "upload_to_s3":       lambda: _step_upload_to_s3(job_id, job_dir),
+        "validate_inputs":     lambda: _step_validate_inputs(job_id, job_dir),
+        "run_analysis":        lambda: _step_run_analysis(job_id, job_dir, job),
+        "generate_artifacts":  lambda: _step_generate_artifacts(job_id, job_dir),
+        # Phase 10: 非致命的ステップ（失敗しても処理継続）
+        "check_video_quality": lambda: _step_check_video_quality(job_id, job_dir),
+        "detect_phases":       lambda: _step_detect_phases(job_id, job_dir),
+        "generate_reports":    lambda: _step_generate_reports(job_id, job_dir),
+        "generate_packages":   lambda: _step_generate_packages(job_id, job_dir),
+        "upload_to_s3":        lambda: _step_upload_to_s3(job_id, job_dir),
     }
     fatal_steps = {"validate_inputs", "run_analysis", "generate_artifacts"}
+    # check_video_quality / detect_phases は fatal_steps に含まれない
 
     # ─ ステップ実行 ────────────────────────────────────────────────────────
     # ジョブステータスを running に更新

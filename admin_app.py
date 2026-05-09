@@ -178,6 +178,29 @@ except ImportError as _order_ie:
     PAYMENT_METHODS = []
     PAYMENT_METHOD_LABELS = {}
 
+# ── Phase 10: 自動フェーズ推定 ────────────────────────────────────────────────
+try:
+    from src.analysis.phase_detection import (
+        detect_phases_for_job,
+        load_phase_detection_result,
+        save_phase_correction,
+        load_phase_corrections,
+        confidence_label as phase_confidence_label,
+    )
+    from src.analysis.video_quality import (
+        check_video_quality_for_job,
+        load_video_quality_report,
+    )
+    _PHASE10_AVAILABLE = True
+except ImportError:
+    _PHASE10_AVAILABLE = False
+
+    def load_phase_detection_result(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def load_video_quality_report(*_a, **_kw):  # type: ignore[misc]
+        return None
+
 _RUN_PY = _REPO_ROOT / "run.py"
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
@@ -2587,6 +2610,248 @@ with tab_history:
                                 st.image(str(_pimg), caption=_pimg.stem, use_container_width=True)
 
                 st.caption(f"updated_at: {_pf.get('updated_at', '—')}")
+
+            # ── P10. 自動フェーズ推定（Phase 10）─────────────────────────────────
+            with st.expander("🔍 P10. 自動フェーズ推定", expanded=False):
+                if not _PHASE10_AVAILABLE:
+                    st.warning(
+                        "Phase 10 モジュールが利用できません。"
+                        "`src/analysis/phase_detection.py` と `src/analysis/video_quality.py` を確認してください。"
+                    )
+                else:
+                    _p10_job_dir = get_job_dir(selected_id)
+
+                    st.caption(
+                        "⚠️ 自動推定結果は**候補**です。動画の撮影角度・画質・服装により精度が変わります。  \n"
+                        "最終的なフェーズ指定は管理者が確認・修正してください。  \n"
+                        "解析結果の採用は「採用する」ボタンを押した場合のみ反映されます。"
+                    )
+
+                    _p10_btn_col1, _p10_btn_col2 = st.columns(2)
+                    with _p10_btn_col1:
+                        if st.button("🤖 自動フェーズ推定を実行", key=f"p10_detect_{selected_id}"):
+                            with st.spinner("自動推定中..."):
+                                try:
+                                    detect_phases_for_job(_p10_job_dir)
+                                    st.success("✅ 自動推定が完了しました。")
+                                    st.rerun()
+                                except Exception as _p10e:
+                                    st.error(f"自動推定エラー: {_p10e}")
+
+                    with _p10_btn_col2:
+                        if st.button("📊 動画品質チェックを実行", key=f"p10_quality_{selected_id}"):
+                            with st.spinner("品質チェック中..."):
+                                try:
+                                    check_video_quality_for_job(_p10_job_dir)
+                                    st.success("✅ 品質チェックが完了しました。")
+                                    st.rerun()
+                                except Exception as _p10qe:
+                                    st.error(f"品質チェックエラー: {_p10qe}")
+
+                    # ── 自動推定結果の表示 ─────────────────────────────────────
+                    _p10_result = load_phase_detection_result(_p10_job_dir)
+                    if _p10_result:
+                        _p10_status = _p10_result.get("status", "unknown")
+                        if _p10_status == "ok":
+                            st.markdown(f"**推定ステータス:** `{_p10_status}` / 実行日時: `{_p10_result.get('generated_at', '—')}`")
+                            _p10_phases = _p10_result.get("phases", {})
+                            _p10_meta   = _p10_result.get("metadata", {})
+                            _p10_corrections = load_phase_corrections(_p10_job_dir)
+
+                            _p10_phase_labels = {
+                                "approach_start":      "助走 開始",
+                                "approach_end":        "助走 終了",
+                                "cross_step_start":    "クロスステップ 開始",
+                                "cross_step_end":      "クロスステップ 終了",
+                                "withdrawal_start":    "槍を引く 開始",
+                                "withdrawal_end":      "槍を引く 終了",
+                                "block":               "ブロック",
+                                "release":             "リリース",
+                                "follow_through_start": "フォロースルー 開始",
+                                "follow_through_end":   "フォロースルー 終了",
+                                "recovery_start":      "リカバリー 開始",
+                                "recovery_end":        "リカバリー 終了",
+                            }
+
+                            for _p10_key, _p10_label in _p10_phase_labels.items():
+                                _p10_phase = _p10_phases.get(_p10_key)
+                                if not _p10_phase:
+                                    continue
+
+                                _p10_frame = _p10_phase.get("frame")
+                                _p10_ts    = _p10_phase.get("time_sec")
+                                _p10_conf  = _p10_phase.get("confidence", 0.0)
+                                _p10_clbl  = _p10_phase.get("confidence_label", "—")
+                                _p10_reason = _p10_phase.get("reason", "")
+                                _p10_warn  = _p10_phase.get("warning")
+
+                                _conf_color = (
+                                    "🟢" if _p10_conf >= 0.75
+                                    else "🟡" if _p10_conf >= 0.45
+                                    else "🔴"
+                                )
+
+                                with st.container():
+                                    _c1, _c2, _c3, _c4 = st.columns([2, 1, 1, 2])
+                                    with _c1:
+                                        st.markdown(f"**{_p10_label}**")
+                                    with _c2:
+                                        if _p10_frame is not None:
+                                            st.write(f"フレーム {_p10_frame}")
+                                        else:
+                                            st.write("—")
+                                    with _c3:
+                                        st.write(f"{_conf_color} {_p10_clbl}")
+                                    with _c4:
+                                        st.caption(_p10_reason[:80])
+
+                                    if _p10_warn:
+                                        st.warning(f"⚠️ {_p10_warn}")
+
+                                    # 採用ボタン + 手動修正入力
+                                    _p10_adopt_col, _p10_manual_col, _p10_reset_col = st.columns([1, 2, 1])
+                                    with _p10_adopt_col:
+                                        if _p10_frame is not None and st.button(
+                                            "✅ この候補を採用",
+                                            key=f"p10_adopt_{selected_id}_{_p10_key}",
+                                            help="このフレームを phase_frames.json に反映します。管理者が確認した場合のみ押してください。",
+                                        ):
+                                            try:
+                                                save_phase_correction(
+                                                    _p10_job_dir,
+                                                    _p10_key,
+                                                    auto_frame=_p10_frame,
+                                                    manual_frame=_p10_frame,
+                                                    accepted=True,
+                                                    confidence=_p10_conf,
+                                                    admin_note="管理画面から採用",
+                                                )
+                                                # phase_frames.json にも反映
+                                                _p10_key_to_pf_key = {
+                                                    "approach_start":       "approach_start_frame",
+                                                    "approach_end":         "approach_end_frame",
+                                                    "cross_step_start":     "cross_step_start_frame",
+                                                    "cross_step_end":       "cross_step_end_frame",
+                                                    "withdrawal_start":     "withdrawal_start_frame",
+                                                    "withdrawal_end":       "withdrawal_end_frame",
+                                                    "block":                "block_frame",
+                                                    "release":              "release_frame",
+                                                    "follow_through_start": "follow_through_start_frame",
+                                                    "follow_through_end":   "follow_through_end_frame",
+                                                    "recovery_start":       "recovery_start_frame",
+                                                    "recovery_end":         "recovery_end_frame",
+                                                }
+                                                _pf_key_name = _p10_key_to_pf_key.get(_p10_key)
+                                                if _pf_key_name:
+                                                    update_phase_frames(
+                                                        selected_id,
+                                                        **{_pf_key_name: _p10_frame},
+                                                    )
+                                                st.success(f"✅ {_p10_label} を採用しました。")
+                                                st.rerun()
+                                            except Exception as _p10ae:
+                                                st.error(f"採用エラー: {_p10ae}")
+
+                                    with _p10_manual_col:
+                                        _prev_manual = (
+                                            _p10_corrections.get(_p10_key, {}).get("manual_corrected_frame")
+                                            or _p10_frame
+                                            or 0
+                                        )
+                                        _p10_manual_val = st.number_input(
+                                            "手動修正フレーム番号",
+                                            value=int(_prev_manual) if _prev_manual else 0,
+                                            min_value=0,
+                                            key=f"p10_manual_{selected_id}_{_p10_key}",
+                                            label_visibility="collapsed",
+                                        )
+                                        if st.button(
+                                            "💾 修正を保存",
+                                            key=f"p10_save_manual_{selected_id}_{_p10_key}",
+                                        ):
+                                            try:
+                                                save_phase_correction(
+                                                    _p10_job_dir,
+                                                    _p10_key,
+                                                    auto_frame=_p10_frame,
+                                                    manual_frame=int(_p10_manual_val),
+                                                    accepted=False,
+                                                    confidence=_p10_conf,
+                                                    admin_note="手動修正",
+                                                )
+                                                st.success("✅ 修正を保存しました。")
+                                            except Exception as _p10se:
+                                                st.error(f"保存エラー: {_p10se}")
+
+                                    with _p10_reset_col:
+                                        if st.button(
+                                            "🗑️ リセット",
+                                            key=f"p10_reset_{selected_id}_{_p10_key}",
+                                            help="修正履歴を削除し、未指定に戻します。phase_frames.json は変更されません。",
+                                        ):
+                                            try:
+                                                save_phase_correction(
+                                                    _p10_job_dir,
+                                                    _p10_key,
+                                                    auto_frame=_p10_frame,
+                                                    manual_frame=None,
+                                                    accepted=False,
+                                                    confidence=_p10_conf,
+                                                    admin_note="リセット（未指定に戻す）",
+                                                )
+                                                st.info("修正をリセットしました。")
+                                            except Exception as _p10re:
+                                                st.error(f"リセットエラー: {_p10re}")
+
+                                st.divider()
+
+                        elif _p10_status in ("skipped", "disabled"):
+                            st.info(f"自動推定: {_p10_result.get('reason', _p10_status)}")
+                        elif _p10_status == "error":
+                            st.error(f"前回の推定でエラーが発生しました: {_p10_result.get('reason', '—')}")
+                    else:
+                        st.info("まだ自動推定が実行されていません。「🤖 自動フェーズ推定を実行」を押してください。")
+
+                    # ── 動画品質レポートの表示 ────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("### 📊 動画品質レポート")
+                    _p10_quality = load_video_quality_report(_p10_job_dir)
+                    if _p10_quality:
+                        _p10_oq = _p10_quality.get("overall_quality", "unknown")
+                        _p10_oq_icon = {"good": "🟢", "medium": "🟡", "low": "🔴"}.get(_p10_oq, "⚪")
+                        _p10_oq_label = _p10_quality.get("overall_quality_label", _p10_oq)
+                        st.markdown(f"**総合品質:** {_p10_oq_icon} {_p10_oq_label}")
+
+                        _p10_fps_val    = _p10_quality.get("fps")
+                        _p10_dur_val    = _p10_quality.get("duration_sec")
+                        _p10_pdr_val    = _p10_quality.get("pose_detection_rate")
+
+                        _p10_qual_cols = st.columns(3)
+                        with _p10_qual_cols[0]:
+                            st.metric("FPS（推定）", f"{_p10_fps_val:.1f}" if _p10_fps_val else "—")
+                        with _p10_qual_cols[1]:
+                            st.metric("動画長", f"{_p10_dur_val:.1f} 秒" if _p10_dur_val else "—")
+                        with _p10_qual_cols[2]:
+                            _pdr_pct = f"{_p10_pdr_val * 100:.1f}%" if _p10_pdr_val is not None else "—"
+                            st.metric("姿勢検出率", _pdr_pct)
+
+                        _p10_warnings = _p10_quality.get("warnings", [])
+                        if _p10_warnings:
+                            st.markdown("**⚠️ 品質上の注意点:**")
+                            for _w in _p10_warnings:
+                                st.warning(_w)
+                        else:
+                            st.success("品質上の懸念点は見つかりませんでした。")
+
+                        _p10_desc = _p10_quality.get("overall_description", "")
+                        if _p10_desc:
+                            st.caption(_p10_desc)
+
+                        with st.expander("📷 次回撮影アドバイス", expanded=False):
+                            for _adv in _p10_quality.get("next_shooting_advice", []):
+                                st.markdown(f"- {_adv}")
+                    else:
+                        st.info("動画品質チェックがまだ実行されていません。「📊 動画品質チェックを実行」を押してください。")
 
             # ── P. S3納品 / 納品URL発行 ─────────────────────────────────────────
             with st.expander("☁️ P. S3納品 / 納品URL発行", expanded=False):

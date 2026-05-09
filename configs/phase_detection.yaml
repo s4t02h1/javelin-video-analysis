@@ -1,0 +1,51 @@
+# configs/phase_detection.yaml — Javelin Video Analysis 自動フェーズ推定設定 (Phase 10)
+#
+# ⚠️ 自動推定はあくまで「候補」です。最終的なフェーズ指定は管理者が確認・修正してください。
+#
+# enabled: false にすると worker パイプラインでスキップされます。
+# require_admin_review: true (推奨) のとき、自動推定結果は手動指定を上書きしません。
+
+enabled: true
+default_dominant_arm: "right"
+
+# 自動採用の最低信頼度スコア（この値未満は needs_review=true になる）
+min_confidence_for_auto_accept: 0.85
+
+# true = 管理者確認前に手動指定を上書きしない（推奨: true を維持してください）
+require_admin_review: true
+
+# ── リリースフレーム推定 ─────────────────────────────────────────────────────
+release_detection:
+  use_wrist_velocity: true
+  use_wrist_height: true
+  # 動画全体のうち何%のフレームを探索範囲にするか
+  search_window_percent:
+    start: 50
+    end: 95
+
+# ── ブロックフレーム推定 ─────────────────────────────────────────────────────
+block_detection:
+  enabled: true
+  # release_frame 候補から何フレーム前を探索するか
+  search_before_release_frames: 30
+
+# ── 槍を引く局面 推定 ────────────────────────────────────────────────────────
+withdrawal_detection:
+  enabled: true
+
+# ── クロスステップ 推定 ──────────────────────────────────────────────────────
+cross_step_detection:
+  enabled: true
+  # 足首情報が取得できない場合、release_frame から逆算する簡易モードを使うか
+  fallback_to_simple_estimation: true
+
+# ── 動画品質チェックしきい値 ─────────────────────────────────────────────────
+quality_thresholds:
+  # この値未満の姿勢検出率は警告を出す
+  min_pose_detection_rate: 0.60
+  # この値未満の FPS は低品質とみなす
+  min_fps: 24.0
+  # この値未満の動画長は短すぎる警告を出す
+  min_duration_sec: 2.0
+  # この値以上の欠損率は警告対象
+  max_landmark_missing_rate: 0.40

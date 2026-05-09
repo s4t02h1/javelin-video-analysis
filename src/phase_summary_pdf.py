@@ -93,6 +93,7 @@ def _build_phase_entry(
     phase_img_dir: Path,
     styles: dict,
     is_range: bool,
+    detection_phase: dict | None = None,
 ) -> list:
     """フェーズ1件分の Flowable リストを返す。"""
     font_b = get_font(bold=True)
@@ -137,6 +138,30 @@ def _build_phase_entry(
         )
     )
     elems.append(Paragraph(frame_info, styles.get("caption") or styles.get("Normal")))  # type: ignore[arg-type]
+
+    # Phase 10: 自動推定候補の情報（存在する場合）
+    if detection_phase and detection_phase.get("frame") is not None:
+        _det_clbl   = safe_text(detection_phase.get("confidence_label", "—"))
+        _det_method = safe_text(detection_phase.get("method", "—"))
+        _det_reason = safe_text(detection_phase.get("reason", ""))
+        _det_warn   = detection_phase.get("warning")
+        _det_frame  = detection_phase.get("frame")
+        _auto_text = (
+            f'<font name="{get_font(bold=False)}" size="8" color="#888888">'
+            f'【自動推定候補】フレーム {_det_frame} / {_det_clbl} / 手法: {_det_method}<br/>'
+            f'候補として自動抽出されました。参考値のため、管理者が確認してください。<br/>'
+            f'{_det_reason[:120]}'
+            f'</font>'
+        )
+        elems.append(Paragraph(_auto_text, styles.get("caption") or styles.get("Normal")))
+        if _det_warn:
+            _warn_text = (
+                f'<font name="{get_font(bold=False)}" size="7.5" color="#CC4400">'
+                f'⚠️ {safe_text(_det_warn[:150])}'
+                f'</font>'
+            )
+            elems.append(Paragraph(_warn_text, styles.get("caption") or styles.get("Normal")))
+
     elems.append(para_spacer())
     elems.append(Paragraph(desc, styles.get("body") or styles.get("Normal")))  # type: ignore[arg-type]
 
@@ -238,6 +263,10 @@ def generate_phase_summary_pdf(job_dir: Path) -> Path:
     # 代表フレーム画像ディレクトリ
     phase_img_dir = job_dir / "report" / "phase_frames"
 
+    # Phase 10: 自動フェーズ推定結果（存在する場合に PDF に反映）
+    detection_result = _load_json(job_dir / "report" / "phase_detection_result.json") or {}
+    detection_phases = detection_result.get("phases", {}) if detection_result.get("status") == "ok" else {}
+
     # 出力先
     report_dir = job_dir / "report"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +329,7 @@ def generate_phase_summary_pdf(job_dir: Path) -> Path:
             phase_img_dir=phase_img_dir,
             styles=styles,
             is_range=bool(phase_def.get("is_range", True)),
+            detection_phase=detection_phases.get(phase_key),
         )
         story.extend(entry)
 
