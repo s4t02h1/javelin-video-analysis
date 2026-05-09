@@ -23,6 +23,8 @@ _REPO_ROOT = Path(__file__).resolve().parent
 
 from job_manager import (
     JOBS_DIR,
+    JOB_STATUSES,
+    JOB_STATUS_LABELS,
     collect_output_files,
     create_job,
     get_customer_info,
@@ -47,10 +49,31 @@ MODE_LABELS: dict = {
 }
 
 STATUS_ICONS: dict = {
-    "created":   "🆕",
-    "running":   "⏳",
-    "completed": "✅",
-    "failed":    "❌",
+    "created":          "🆕",
+    "uploaded":         "📤",
+    "running":          "⏳",
+    "completed":        "✅",
+    "reviewing":        "🔍",
+    "ready_to_deliver": "📦",
+    "delivered":        "📨",
+    "failed":           "❌",
+    "archived":         "📂",
+}
+
+SNS_PERMISSION_LABELS: dict = {
+    "unknown":   "⚠️ 未確認",
+    "allowed":   "✅ 許可あり",
+    "anonymous": "👤 匿名なら許可",
+    "denied":    "🚫 不可",
+    # 後方互換
+    "yes":       "✅ 許可あり",
+    "no":        "🚫 不可",
+}
+
+PLAN_LABELS: dict = {
+    "free_preview": "🆓 無料プレビュー",
+    "data_sheet":   "📊 データシート",
+    "full_report":  "📦 フルレポート",
 }
 
 
@@ -324,33 +347,45 @@ def build_delivery_message(
     str
         コピペ用の納品メッセージ文。
     """
-    name: str   = customer_info.get("customer_name") or ""
-    event: str  = customer_info.get("event") or "javelin"
-    plan: str   = customer_info.get("plan") or "free_preview"
+    name: str   = customer_info.get("customer_name") or customer_info.get("nickname") or ""
+    event: str  = customer_info.get("event") or "やり投げ"
     paid: str   = customer_info.get("payment_status") or "unpaid"
     social: str = customer_info.get("permission_for_social_post") or "unknown"
-    arm: str    = customer_info.get("dominant_arm") or customer_info.get("dominant_hand") or "unknown"
-    angle: str  = customer_info.get("filming_angle") or customer_info.get("camera_angle") or "unknown"
+    # 旧値正規化
+    if social == "yes":
+        social = "allowed"
+    elif social == "no":
+        social = "denied"
 
     greeting = f"{name}様、お待たせいたしました！" if name else "お待たせいたしました！"
 
     # SNS掲載許可の補足
     _social_note = ""
-    if social == "yes":
-        _social_note = "\nなお、解析結果をSNSの参考資料として掲載させていただく場合がございます。"
-    elif social == "no":
+    if social == "allowed":
+        _social_note = "\nなお、解析事例としてSNSに掲載させていただく場合がございます（ご確認済み）。"
+    elif social == "anonymous":
+        _social_note = "\nSNS掲載の際はお名前・所属等を匿名にして掲載させていただく場合がございます（ご確認済み）。"
+    elif social == "denied":
         _social_note = "\nSNS等への掲載はいたしません。"
+
+    _disclaimer = (
+        "\n\n⚠️ 本解析は動きの可視化を目的とした参考資料です。"
+        "医療診断・怪我の診断・専門的な競技指導を代替するものではありません。"
+        "ご不明な点はお気軽にご連絡ください。"
+    )
 
     if package_type == "free_preview":
         return (
             f"{greeting}\n"
-            f"{event}の動画解析の無料プレビュー版が完成しました。\n"
+            f"{event}の動画解析「無料プレビュー版」が完成しました。\n"
             "\n"
-            "今回の解析はフォームの良し悪しを断定するものではなく、"
-            "動きの軌跡やタイミングを見返しやすくするための可視化資料です。\n"
+            "まず ZIP ファイルの中の「**00_最初に読んでください.pdf**」をご覧ください。"
+            "ファイル構成・見方の説明が書いてあります。\n"
             "\n"
-            "必要であれば、CSVデータ・グラフ・PDFレポートを含む詳細版も作成できます。"
-            f"お気軽にお申し付けください。{_social_note}"
+            "解析動画と代表フレーム画像が含まれています。動画は各アングルの動きをご確認いただけます。\n"
+            "\n"
+            "CSVやPDFレポート・グラフを含む詳細版（データシート版・フルレポート版）もご用意できます。"
+            f"ご興味があればお気軽にお申し付けください。{_social_note}{_disclaimer}"
         )
 
     elif package_type == "data_sheet":
@@ -361,12 +396,18 @@ def build_delivery_message(
             _payment_note = "\n\nお支払いの確認が取れております。ありがとうございます。"
         return (
             f"{greeting}\n"
-            f"{event}の右手首の高さ変化、腕の軌道、代表フレーム、"
-            "CSVデータをまとめた「有料データシート版」が完成しました。\n"
+            f"{event}の動画解析「有料データシート版」が完成しました。\n"
             "\n"
-            "練習の振り返りや指導者との共有に使いやすい内容です。\n"
+            "まず ZIP の「**00_最初に読んでください.pdf**」をご覧ください。\n"
             "\n"
-            f"フルレポート（PDF＋全動画）もご希望の場合はお申し付けください。{_payment_note}{_social_note}"
+            "今回の内容:\n"
+            "・解析動画（全バリエーション）\n"
+            "・選手向けサマリーPDF（主要指標・グラフ解説）\n"
+            "・代表フレームシート\n"
+            "・姿勢推定データ CSV（研究・開発用 — 通常は開かなくて大丈夫です）\n"
+            "\n"
+            "練習の振り返りや指導者との共有にお役立てください。\n"
+            f"フルレポート版もご希望の場合はお申し付けください。{_payment_note}{_social_note}{_disclaimer}"
         )
 
     elif package_type == "full_report":
@@ -377,15 +418,53 @@ def build_delivery_message(
             _payment_note = "\n\nお支払いの確認が取れております。ありがとうございます。"
         return (
             f"{greeting}\n"
-            f"{event}の「有料フルレポート版」が完成しました。\n"
+            f"{event}の動画解析「有料フルレポート版」が完成しました。\n"
             "\n"
-            "PDFレポート、解析動画、CSV、グラフ、代表フレームをまとめたフルセットです。\n"
+            "まず ZIP の「**00_最初に読んでください.pdf**」をご覧ください。\n"
             "\n"
-            f"あくまで参考資料として、今後の練習の振り返りにご活用ください。{_payment_note}{_social_note}"
+            "今回の内容:\n"
+            "・PDFレポート（詳細解析）\n"
+            "・解析動画（全バリエーション）\n"
+            "・選手向けサマリーPDF\n"
+            "・コーチ向けレビューシート\n"
+            "・グラフ解説PDF\n"
+            "・代表フレームシート\n"
+            "・CSV・JSON・グラフ画像（研究・開発用 — 通常は開かなくて大丈夫です）\n"
+            "\n"
+            f"今後の練習の振り返りにご活用いただけますと幸いです。{_payment_note}{_social_note}{_disclaimer}"
         )
 
     else:
         return f"package_type '{package_type}' は未定義です。"
+
+
+def build_sns_permission_message(customer_info: dict) -> str:
+    """SNS掲載許可確認用メッセージを生成する。"""
+    name: str = customer_info.get("customer_name") or customer_info.get("nickname") or ""
+    greeting = f"{name}様、" if name else ""
+
+    return (
+        f"{greeting}一点ご確認させてください。\n"
+        "\n"
+        "今回の解析結果・フォーム画像を、SNS（Instagram等）に"
+        "「解析事例」として掲載させていただく場合があります。\n"
+        "\n"
+        "掲載にあたり、以下についてお聞かせください。\n"
+        "\n"
+        "① お名前・Instagram IDを出してもよいか\n"
+        "② 学校名・所属チームを出してもよいか\n"
+        "③ 顔が映っているフレームをそのまま使ってよいか\n"
+        "④ ゼッケン番号等が写っている場合、そのまま使ってよいか\n"
+        "⑤ 音声がある場合、使用してよいか\n"
+        "\n"
+        "上記すべて不可でも、「匿名加工（名前・顔・所属を隠す）」なら掲載可能でしょうか？\n"
+        "\n"
+        "どちらもご不安な場合は「掲載不可」で全く問題ありません。\n"
+        "お答えいただいた内容がサービスのご利用に影響することはありません。\n"
+        "\n"
+        "また、一度許可をいただいた後でも、取り下げをご希望の場合はご連絡ください。\n"
+        "よろしくお願いいたします。"
+    )
 
 
 # ── ページ設定 ─────────────────────────────────────────────────────────────────
@@ -635,32 +714,102 @@ with tab_new:
 with tab_history:
     st.header("過去のジョブ一覧")
 
-    if st.button("🔄 更新"):
-        st.rerun()
+    _hist_refresh, _hist_filter_col = st.columns([1, 5])
+    with _hist_refresh:
+        if st.button("🔄 更新"):
+            st.rerun()
 
     jobs = list_jobs()
 
     if not jobs:
         st.info("ジョブがまだありません。「新規ジョブ」タブから解析を開始してください。")
     else:
-        # サマリーテーブル
-        rows = [
-            {
-                "ジョブID":  j["job_id"],
-                "状態":      STATUS_ICONS.get(j["status"], "?") + " " + j["status"],
-                "モード":    MODE_LABELS.get(j.get("mode", ""), j.get("mode", "")),
-                "身長(m)":   str(j["height_m"]) if j.get("height_m") else "—",
-                "作成日時":  j.get("created_at", ""),
-                "出力数":    len(j.get("output_files", [])),
-            }
-            for j in jobs
-        ]
-        st.dataframe(rows, width="stretch", hide_index=True)
+        # ── フィルタ ──────────────────────────────────────────────────────────
+        with st.expander("🔍 フィルタ・絞り込み", expanded=False):
+            _filt_col1, _filt_col2, _filt_col3 = st.columns(3)
+            with _filt_col1:
+                _filt_status = st.multiselect(
+                    "ステータスで絞り込み",
+                    options=JOB_STATUSES,
+                    default=[],
+                    format_func=lambda s: f"{STATUS_ICONS.get(s, '')} {JOB_STATUS_LABELS.get(s, s)}",
+                )
+            with _filt_col2:
+                _filt_plan = st.multiselect(
+                    "プランで絞り込み",
+                    options=["free_preview", "data_sheet", "full_report"],
+                    default=[],
+                    format_func=lambda p: PLAN_LABELS.get(p, p),
+                )
+            with _filt_col3:
+                _filt_undelivered = st.checkbox("未納品のみ表示", value=False)
+                _filt_failed      = st.checkbox("エラーのみ表示", value=False)
+                _filt_ready       = st.checkbox("納品準備完了のみ", value=False)
 
-        # ジョブ選択
+        # ── フィルタ適用 ──────────────────────────────────────────────────────
+        def _apply_filters(all_jobs: list) -> list:
+            result = all_jobs
+            if _filt_failed:
+                return [j for j in result if j.get("status") == "failed"]
+            if _filt_ready:
+                return [j for j in result if j.get("status") == "ready_to_deliver"]
+            if _filt_undelivered:
+                result = [j for j in result if j.get("status") not in ("delivered", "archived")]
+            if _filt_status:
+                result = [j for j in result if j.get("status") in _filt_status]
+            if _filt_plan:
+                _ci_cache: dict[str, dict] = {}
+                filtered = []
+                for j in result:
+                    ci = _ci_cache.setdefault(j["job_id"], get_customer_info(j["job_id"]))
+                    if ci.get("plan", "free_preview") in _filt_plan:
+                        filtered.append(j)
+                result = filtered
+            return result
+
+        _filtered_jobs = _apply_filters(jobs)
+
+        if not _filtered_jobs:
+            st.info("条件に一致するジョブがありません。フィルタを変更してください。")
+        else:
+            # ── 一覧テーブル ───────────────────────────────────────────────
+            def _row_for_job(j: dict) -> dict:
+                ci = get_customer_info(j["job_id"])
+                _jdir = get_job_dir(j["job_id"])
+                # 生成済み確認
+                _has_pdf  = (_jdir / "report" / "report.pdf").exists()
+                _has_zip  = (_jdir / "deliverables" / "free_preview.zip").exists() or \
+                            (_jdir / "deliverables" / "data_sheet_package.zip").exists() or \
+                            (_jdir / "deliverables" / "full_report_package.zip").exists()
+                _has_mp4  = any((_jdir / "output").glob("*.mp4")) if (_jdir / "output").exists() else False
+                _status   = j.get("status", "created")
+                _social   = ci.get("permission_for_social_post", "unknown")
+                return {
+                    "ジョブID":      j["job_id"],
+                    "選手名":        ci.get("customer_name") or ci.get("nickname") or "—",
+                    "受付日":        (j.get("created_at") or "")[:10] or "—",
+                    "プラン":        PLAN_LABELS.get(ci.get("plan", "free_preview"), ci.get("plan", "—")),
+                    "ステータス":    STATUS_ICONS.get(_status, "?") + " " + JOB_STATUS_LABELS.get(_status, _status),
+                    "PDF":          "✅" if _has_pdf else "—",
+                    "ZIP":          "✅" if _has_zip else "—",
+                    "解析動画":      "✅" if _has_mp4 else "—",
+                    "納品済み":      "✅" if _status == "delivered" else "—",
+                    "SNS許可":       SNS_PERMISSION_LABELS.get(_social, _social),
+                    "最終更新":      (j.get("updated_at") or "")[:16] or "—",
+                }
+
+            _table_rows = [_row_for_job(j) for j in _filtered_jobs]
+            st.dataframe(_table_rows, use_container_width=True, hide_index=True)
+            st.caption(f"{len(_filtered_jobs)} 件 / 全 {len(jobs)} 件")
+
+        # ── ジョブ選択（全ジョブから選択可能にする） ──────────────────────────
         selected_id = st.selectbox(
             "詳細を表示するジョブを選択",
             options=[j["job_id"] for j in jobs],
+            format_func=lambda jid: next(
+                (f"{j.get('created_at', '')[:10]}  {get_customer_info(jid).get('customer_name') or jid}  [{jid}]"
+                 for j in jobs if j["job_id"] == jid), jid
+            ),
         )
 
         if selected_id:
@@ -674,26 +823,88 @@ with tab_history:
             _cls = _classify_job_files(_job_dir, _all_files)
 
             # ══════════════════════════════════════════════════════════════════
-            # A. Job Summary
+            # A. Job Summary + ステータス管理
             # ══════════════════════════════════════════════════════════════════
             st.markdown("#### 🗂️ A. Job Summary")
+
+            _ci_for_summary = get_customer_info(selected_id)
+            _current_status = job.get("status", "created")
             _inp_p = Path(job.get("input_file", ""))
-            _summary_pairs = [
-                ("Job ID",      job.get("job_id", "—")),
-                ("Status",      STATUS_ICONS.get(job["status"], "") + " " + job.get("status", "—")),
-                ("Created at",  job.get("created_at", "—")),
-                ("Updated at",  job.get("updated_at", "—")),
-                ("Height (m)",  str(job.get("height_m", "—"))),
-                ("Mode",        job.get("mode", "—")),
-                ("Input video", _inp_p.name if _inp_p.name else "—"),
-            ]
-            _sa_col, _sb_col = st.columns([1, 2])
-            with _sa_col:
-                for _k, _ in _summary_pairs:
-                    st.markdown(f"**{_k}**")
-            with _sb_col:
-                for _, _v in _summary_pairs:
-                    st.markdown(_v)
+
+            _sa1, _sa2 = st.columns([3, 2])
+            with _sa1:
+                _summary_pairs = [
+                    ("Job ID",      job.get("job_id", "—")),
+                    ("ステータス",  STATUS_ICONS.get(_current_status, "?") + " " + JOB_STATUS_LABELS.get(_current_status, _current_status)),
+                    ("選手名",      _ci_for_summary.get("customer_name") or _ci_for_summary.get("nickname") or "—"),
+                    ("プラン",      PLAN_LABELS.get(_ci_for_summary.get("plan", "free_preview"), _ci_for_summary.get("plan", "—"))),
+                    ("受付日",      (job.get("created_at") or "")[:16] or "—"),
+                    ("最終更新",    (job.get("updated_at") or "")[:16] or "—"),
+                    ("身長 (m)",    str(job.get("height_m", "—"))),
+                    ("モード",      job.get("mode", "—")),
+                    ("入力動画",    _inp_p.name if _inp_p.name else "—"),
+                ]
+                for _k, _v in _summary_pairs:
+                    st.markdown(f"**{_k}**: {_v}")
+
+            with _sa2:
+                st.markdown("**ステータス変更**")
+                _new_status = st.selectbox(
+                    "新しいステータス",
+                    options=JOB_STATUSES,
+                    index=JOB_STATUSES.index(_current_status) if _current_status in JOB_STATUSES else 0,
+                    format_func=lambda s: f"{STATUS_ICONS.get(s, '')} {JOB_STATUS_LABELS.get(s, s)}",
+                    key=f"status_select_{selected_id}",
+                    label_visibility="collapsed",
+                )
+                _status_state_key = f"_status_change_{selected_id}"
+                if _status_state_key in st.session_state:
+                    _sr = st.session_state.pop(_status_state_key)
+                    if _sr["ok"]:
+                        st.success(_sr["msg"])
+                    else:
+                        st.error(_sr["msg"])
+                if st.button("💾 ステータスを変更", key=f"btn_status_{selected_id}", use_container_width=True):
+                    try:
+                        from src.job_logger import log_status_change
+                        _old = _current_status
+                        update_job(selected_id, status=_new_status)
+                        if _new_status == "delivered":
+                            _delivered_now = datetime.now().isoformat(timespec="seconds")
+                            update_customer_info(selected_id, delivered_at=_delivered_now)
+                        log_status_change(selected_id, _old, _new_status)
+                        st.session_state[_status_state_key] = {"ok": True, "msg": f"✅ {JOB_STATUS_LABELS.get(_new_status, _new_status)} に変更しました"}
+                    except Exception as _se:
+                        st.session_state[_status_state_key] = {"ok": False, "msg": f"変更エラー: {_se}"}
+                    st.rerun()
+
+                st.divider()
+                st.markdown("**クイック操作**")
+                _qbtn1, _qbtn2 = st.columns(2)
+                with _qbtn1:
+                    if st.button("📦 納品準備完了", key=f"btn_ready_{selected_id}", use_container_width=True):
+                        update_job(selected_id, status="ready_to_deliver")
+                        from src.job_logger import log_status_change
+                        log_status_change(selected_id, _current_status, "ready_to_deliver")
+                        st.rerun()
+                with _qbtn2:
+                    if st.button("📨 納品済みにする", key=f"btn_delivered_{selected_id}", use_container_width=True):
+                        update_job(selected_id, status="delivered")
+                        update_customer_info(selected_id, delivered_at=datetime.now().isoformat(timespec="seconds"))
+                        from src.job_logger import log_status_change
+                        log_status_change(selected_id, _current_status, "delivered")
+                        st.rerun()
+                _qbtn3, _qbtn4 = st.columns(2)
+                with _qbtn3:
+                    if st.button("🔄 エラーをリセット", key=f"btn_reset_err_{selected_id}", use_container_width=True):
+                        update_job(selected_id, status="completed", error=None)
+                        st.rerun()
+                with _qbtn4:
+                    if st.button("📂 アーカイブ", key=f"btn_archive_{selected_id}", use_container_width=True):
+                        update_job(selected_id, status="archived")
+                        from src.job_logger import log_status_change
+                        log_status_change(selected_id, _current_status, "archived")
+                        st.rerun()
 
             if job.get("error"):
                 st.error(f"❌ エラー:\n```\n{job['error']}\n```")
@@ -711,8 +922,9 @@ with tab_history:
                 else:
                     st.warning("入力ファイルが見つかりません。")
 
-            # ══════════════════════════════════════════════════════════════════            # I. 解析ログ
-            # ══════════════════════════════════════════════════════════════
+            # ══════════════════════════════════════════════════════════════════
+            # I. 解析ログ（job_log.txt も含む）
+            # ══════════════════════════════════════════════════════════════════
             _is_failed = job.get("status") == "failed"
             with st.expander(
                 "🗒️ I. 解析ログ",
@@ -720,7 +932,19 @@ with tab_history:
             ):
                 _logs_dir = _job_dir / "logs"
 
-                # ─ 失敗時の簡易チェックリスト ───────────────────────────────────────────────
+                # ─ 操作ログ (job_log.txt) ────────────────────────────────────
+                with st.expander("📋 操作ログ (job_log.txt)", expanded=False):
+                    try:
+                        from src.job_logger import read_job_log
+                        _jlogs = read_job_log(selected_id)
+                        if _jlogs:
+                            import pandas as _pd_jl
+                            st.dataframe(_pd_jl.DataFrame(_jlogs[::-1]), use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("操作ログがまだありません。")
+                    except Exception as _jle:
+                        st.caption(f"操作ログの読み込みに失敗: {_jle}")
+
                 if _is_failed:
                     st.error("❌ 解析に失敗しています。以下の点を確認してください。")
                     st.markdown("""
@@ -776,7 +1000,8 @@ with tab_history:
                         else:
                             st.caption("stdout.txt がありません")
 
-            # ══════════════════════════════════════════════════════════════            # G. Customer Info（顧客情報）
+            # ══════════════════════════════════════════════════════════════════
+            # G. Customer Info（顧客情報）
             # ══════════════════════════════════════════════════════════════════
             with st.expander("👤 G. 顧客情報 / Customer Info", expanded=True):
                 try:
@@ -785,83 +1010,95 @@ with tab_history:
                     st.warning(f"⚠️ customer_info.json の読み込みに失敗しました: {_ci_err}")
                     _ci = {}
                 with st.form(key=f"ci_form_{selected_id}"):
-                    # ── 行1: 基本情報 ──
+                    st.markdown("##### 基本情報")
                     _ci_c1, _ci_c2, _ci_c3 = st.columns(3)
                     with _ci_c1:
-                        _ci_name = st.text_input(
-                            "顧客名", value=_ci.get("customer_name", "")
-                        )
-                        _ci_ig = st.text_input(
-                            "Instagram ID", value=_ci.get("instagram_id", "")
-                        )
-                        _ci_event = st.text_input(
-                            "種目", value=_ci.get("event", "javelin")
-                        )
+                        _ci_name = st.text_input("顧客名", value=_ci.get("customer_name", ""))
+                        _ci_nick = st.text_input("ニックネーム", value=_ci.get("nickname", ""), help="SNS等で使う名前")
+                        _ci_ig = st.text_input("Instagram ID", value=_ci.get("instagram_id", ""))
+                        _ci_event = st.text_input("種目", value=_ci.get("event", "javelin"))
                     with _ci_c2:
                         _arm_opts = ["right", "left", "unknown"]
                         _arm_labels = {"right": "右 (right)", "left": "左 (left)", "unknown": "不明 (unknown)"}
                         _ci_arm_val = _ci.get("dominant_arm") or _ci.get("dominant_hand", "unknown")
                         _ci_arm = st.selectbox(
-                            "利き腕 (dominant_arm)",
+                            "利き腕",
                             options=_arm_opts,
                             format_func=lambda x: _arm_labels[x],
                             index=_arm_opts.index(_ci_arm_val if _ci_arm_val in _arm_opts else "unknown"),
                         )
                         _ci_height = st.number_input(
                             "身長 (m)",
-                            min_value=0.0,
-                            max_value=2.5,
+                            min_value=0.0, max_value=2.5,
                             value=float(_ci.get("height_m") or 0.0),
-                            step=0.01,
-                            format="%.2f",
+                            step=0.01, format="%.2f",
                             help="0.00 は未設定扱いです",
                         )
+                        _ci_career = st.text_input("競技歴", value=_ci.get("athletic_career", ""), placeholder="例: やり投げ3年目")
                         _angle_opts = ["side", "back", "front", "diagonal", "unknown"]
-                        _angle_labels = {
-                            "side": "側面 (side)", "back": "後方 (back)",
-                            "front": "正面 (front)", "diagonal": "斜め (diagonal)",
-                            "unknown": "不明 (unknown)",
-                        }
+                        _angle_labels = {"side": "側面", "back": "後方", "front": "正面", "diagonal": "斜め", "unknown": "不明"}
                         _ci_angle_val = _ci.get("filming_angle") or _ci.get("camera_angle", "unknown")
                         _ci_angle = st.selectbox(
-                            "撮影方向 (filming_angle)",
+                            "撮影方向",
                             options=_angle_opts,
                             format_func=lambda x: _angle_labels[x],
                             index=_angle_opts.index(_ci_angle_val if _ci_angle_val in _angle_opts else "unknown"),
                         )
                     with _ci_c3:
-                        _social_opts = ["yes", "no", "unknown"]
-                        _social_labels = {"yes": "許可 (yes)", "no": "不許可 (no)", "unknown": "未確認 (unknown)"}
-                        _ci_social_val = _ci.get("permission_for_social_post", "unknown")
-                        _ci_social = st.selectbox(
-                            "SNS掲載許可",
-                            options=_social_opts,
-                            format_func=lambda x: _social_labels[x],
-                            index=_social_opts.index(_ci_social_val if _ci_social_val in _social_opts else "unknown"),
-                        )
                         _plan_opts = ["free_preview", "data_sheet", "full_report"]
-                        _plan_labels = {
-                            "free_preview": "無料プレビュー",
-                            "data_sheet":   "データシート",
-                            "full_report":  "フルレポート",
-                        }
                         _ci_plan_val = _ci.get("plan", "free_preview")
                         _ci_plan = st.selectbox(
-                            "プラン (plan)",
+                            "プラン",
                             options=_plan_opts,
-                            format_func=lambda x: _plan_labels[x],
+                            format_func=lambda x: PLAN_LABELS.get(x, x),
                             index=_plan_opts.index(_ci_plan_val if _ci_plan_val in _plan_opts else "free_preview"),
                         )
                         _pstatus_opts = ["unpaid", "paid", "free"]
-                        _pstatus_labels = {"unpaid": "未払い (unpaid)", "paid": "支払済み (paid)", "free": "無料 (free)"}
+                        _pstatus_labels = {"unpaid": "未払い", "paid": "支払済み", "free": "無料"}
                         _ci_pstatus_val = _ci.get("payment_status", "unpaid")
                         _ci_pstatus = st.selectbox(
-                            "支払いステータス (payment_status)",
+                            "支払いステータス",
                             options=_pstatus_opts,
                             format_func=lambda x: _pstatus_labels[x],
                             index=_pstatus_opts.index(_ci_pstatus_val if _ci_pstatus_val in _pstatus_opts else "unpaid"),
                         )
-                    # ── 行2: 納品ステータス ──
+                        _ci_received_at = st.text_input("受付日", value=_ci.get("received_at", ""), placeholder="2026-05-10")
+                        _ci_delivery_sched = st.text_input("納品予定メモ", value=_ci.get("delivery_scheduled_note", ""), placeholder="例: 今週末")
+                        _ci_delivered_at = st.text_input("納品済み日時", value=_ci.get("delivered_at", ""), placeholder="ISO8601 or 空欄")
+
+                    st.markdown("##### SNS掲載許可")
+                    _sns_col1, _sns_col2 = st.columns([2, 3])
+                    with _sns_col1:
+                        _sns_opts = ["unknown", "allowed", "anonymous", "denied"]
+                        _sns_labels = {
+                            "unknown":   "⚠️ 未確認",
+                            "allowed":   "✅ 許可あり",
+                            "anonymous": "👤 匿名なら許可",
+                            "denied":    "🚫 不可",
+                        }
+                        _ci_social_val = _ci.get("permission_for_social_post", "unknown")
+                        # 旧値の正規化
+                        if _ci_social_val == "yes":
+                            _ci_social_val = "allowed"
+                        elif _ci_social_val == "no":
+                            _ci_social_val = "denied"
+                        _ci_social = st.radio(
+                            "SNS掲載許可ステータス",
+                            options=_sns_opts,
+                            format_func=lambda x: _sns_labels[x],
+                            index=_sns_opts.index(_ci_social_val if _ci_social_val in _sns_opts else "unknown"),
+                            horizontal=True,
+                        )
+                    with _sns_col2:
+                        _ci_anon_note = st.text_area(
+                            "匿名化メモ",
+                            value=_ci.get("anonymization_note", ""),
+                            height=100,
+                            placeholder="例: 名前を出さない / 学校名を出さない / 顔を隠す",
+                            help="SNS掲載時の匿名化条件を記載してください",
+                        )
+
+                    st.markdown("##### 納品ステータス・メモ")
                     _dstatus_opts = ["not_started", "analyzed", "preview_delivered", "paid_delivered", "completed"]
                     _dstatus_labels = {
                         "not_started":       "未着手",
@@ -879,40 +1116,51 @@ with tab_history:
                             if _ci.get("delivery_status") in _dstatus_opts else "not_started"
                         ),
                     )
-                    # ── 行3: メモ ──
-                    _note_c1, _note_c2 = st.columns(2)
+                    _note_c1, _note_c2, _note_c3 = st.columns(3)
                     with _note_c1:
                         _ci_notes = st.text_area(
-                            "メモ (notes)",
+                            "相談内容メモ (notes)",
                             value=_ci.get("notes", "") or _ci.get("request_note", ""),
                             height=100,
-                            help="相談内容・要望など自由記述",
                         )
                     with _note_c2:
+                        _ci_admin_memo = st.text_area(
+                            "管理者メモ (admin_memo)",
+                            value=_ci.get("admin_memo", ""),
+                            height=100,
+                            help="運営内部のメモ（顧客には見えません）",
+                        )
+                    with _note_c3:
                         _ci_coach = st.text_area(
                             "💬 コーチコメント (PDFに掲載)",
                             value=_ci.get("coach_comment", ""),
                             height=100,
-                            help="英数字・記号はPDFにそのまま表示されます。日本語は現在 '?' に置換されます（フォント対応中）。",
                         )
                     _ci_save = st.form_submit_button("💾 顧客情報を保存", type="primary")
                     if _ci_save:
                         update_customer_info(
                             selected_id,
                             customer_name=_ci_name,
+                            nickname=_ci_nick,
                             instagram_id=_ci_ig,
                             event=_ci_event,
                             dominant_arm=_ci_arm,
-                            dominant_hand=_ci_arm,   # 旧フィールドも同期
+                            dominant_hand=_ci_arm,
                             height_m=_ci_height if _ci_height > 0 else None,
+                            athletic_career=_ci_career,
                             filming_angle=_ci_angle,
-                            camera_angle=_ci_angle,  # 旧フィールドも同期
+                            camera_angle=_ci_angle,
                             permission_for_social_post=_ci_social,
+                            anonymization_note=_ci_anon_note,
                             plan=_ci_plan,
                             payment_status=_ci_pstatus,
+                            received_at=_ci_received_at,
+                            delivery_scheduled_note=_ci_delivery_sched,
+                            delivered_at=_ci_delivered_at,
                             delivery_status=_ci_dstatus,
                             notes=_ci_notes,
-                            request_note=_ci_notes,  # 旧フィールドも同期
+                            request_note=_ci_notes,
+                            admin_memo=_ci_admin_memo,
                             coach_comment=_ci_coach,
                         )
                         st.success("保存しました。")
@@ -1095,6 +1343,54 @@ with tab_history:
             # ══════════════════════════════════════════════════════════════════
             with st.expander("📋 K. User-friendly Reports（アスリート向け）", expanded=True):
                 st.caption("選手・コーチが直接使える PDF 成果物です。")
+
+                # ── PDFを一括再生成ボタン ──────────────────────────────────
+                _bulk_pdf_state = f"_bulk_pdf_{selected_id}"
+                if _bulk_pdf_state in st.session_state:
+                    _bpr = st.session_state.pop(_bulk_pdf_state)
+                    if _bpr["ok"]:
+                        st.success(_bpr["msg"])
+                    else:
+                        st.error(_bpr["msg"])
+                        if _bpr.get("tb"):
+                            with st.expander("エラー詳細", expanded=False):
+                                st.code(_bpr["tb"], language="python")
+                if st.button("🔄 PDFを一括再生成（全5種）", key=f"bulk_pdf_{selected_id}", use_container_width=False):
+                    import traceback as _tb_bulk
+                    _bulk_ok = []
+                    _bulk_err = []
+                    _bulk_gens = [
+                        ("src.intro_pdf_generator",       "generate_intro_pdf_for_job"),
+                        ("src.athlete_data_sheet_generator", "generate_athlete_data_sheet_for_job"),
+                        ("src.key_frame_sheet_generator", "generate_key_frame_sheet_for_job"),
+                        ("src.graph_pack_generator",       "generate_graph_pack_for_job"),
+                        ("src.coach_review_sheet_generator","generate_coach_review_sheet_for_job"),
+                    ]
+                    with st.spinner("全PDFを生成中..."):
+                        for _bmod, _bfn in _bulk_gens:
+                            try:
+                                import importlib as _imp
+                                _m = _imp.import_module(_bmod)
+                                _r = getattr(_m, _bfn)(_job_dir)
+                                _bulk_ok.append(_r.name)
+                                from src.job_logger import log_pdf_generated
+                                log_pdf_generated(selected_id, _r.name)
+                            except Exception as _be:
+                                _bulk_err.append(f"{_bfn}: {_be}")
+                    if _bulk_err:
+                        st.session_state[_bulk_pdf_state] = {
+                            "ok": False,
+                            "msg": f"❌ {len(_bulk_err)} 件失敗: " + " / ".join(_bulk_err),
+                            "tb": "\n".join(_bulk_err),
+                        }
+                    else:
+                        st.session_state[_bulk_pdf_state] = {
+                            "ok": True,
+                            "msg": f"✅ {len(_bulk_ok)} 件生成完了: " + ", ".join(_bulk_ok),
+                        }
+                    st.rerun()
+
+                st.divider()
 
                 _ufr_items = [
                     (
@@ -1630,50 +1926,60 @@ with tab_history:
                             st.caption("「ZIPを全て生成」で作成できます。")
 
             # ══════════════════════════════════════════════════════════════
-            # H. 納品メッセージ
+            # H. 納品メッセージ & SNS掲載許可メッセージ
             # ══════════════════════════════════════════════════════════════
-            with st.expander("✉️ H. 納品メッセージ", expanded=False):
+            with st.expander("✉️ H. 納品メッセージ / SNS掲載許可メッセージ", expanded=False):
                 st.caption(
-                    "Instagram DM・公式LINE・メールにそのままコピペできる納品文を自動生成します。"
+                    "Instagram DM・公式LINE・メールにそのままコピペできる文章を自動生成します。"
+                    "顧客情報を保存後に再生成してください。"
                 )
                 _hci = get_customer_info(selected_id)
 
-                _msg_specs = [
-                    (
-                        "free_preview",
-                        "🇦️ 無料プレビュー納品文",
-                        "free_preview_msg",
-                    ),
-                    (
-                        "data_sheet",
-                        "📊 有料データシート案内文",
-                        "data_sheet_msg",
-                    ),
-                    (
-                        "full_report",
-                        "📦 有料フルレポート納品文",
-                        "full_report_msg",
-                    ),
-                ]
+                _h_tab1, _h_tab2 = st.tabs(["📦 納品メッセージ", "📸 SNS掲載許可確認"])
 
-                for _pkg_type, _pkg_label, _ta_key in _msg_specs:
-                    st.markdown(f"**{_pkg_label}**")
-                    try:
-                        _msg_text = build_delivery_message(
-                            job=job,
-                            customer_info=_hci,
-                            package_type=_pkg_type,
+                with _h_tab1:
+                    _msg_specs = [
+                        ("free_preview", "🆓 無料プレビュー納品文", "free_preview_msg"),
+                        ("data_sheet",   "📊 有料データシート納品文", "data_sheet_msg"),
+                        ("full_report",  "📦 有料フルレポート納品文", "full_report_msg"),
+                    ]
+                    for _pkg_type, _pkg_label, _ta_key in _msg_specs:
+                        st.markdown(f"**{_pkg_label}**")
+                        try:
+                            _msg_text = build_delivery_message(
+                                job=job,
+                                customer_info=_hci,
+                                package_type=_pkg_type,
+                            )
+                        except Exception as _me:
+                            _msg_text = f"(メッセージ生成エラー: {_me})"
+                        st.text_area(
+                            label=_pkg_label,
+                            value=_msg_text,
+                            height=200,
+                            key=f"{_ta_key}_{selected_id}",
+                            label_visibility="collapsed",
                         )
-                    except Exception as _me:
-                        _msg_text = f"(メッセージ生成エラー: {_me})"
+                        st.divider()
+
+                with _h_tab2:
+                    st.markdown("**📸 SNS掲載許可確認メッセージ**")
+                    st.caption("SNS（Instagram等）への解析事例掲載について、顧客に確認するメッセージです。")
+                    _sns_current = SNS_PERMISSION_LABELS.get(_hci.get("permission_for_social_post", "unknown"), "⚠️ 未確認")
+                    st.info(f"現在の許可ステータス: **{_sns_current}**")
+                    try:
+                        _sns_msg = build_sns_permission_message(_hci)
+                    except Exception as _sme:
+                        _sns_msg = f"(メッセージ生成エラー: {_sme})"
                     st.text_area(
-                        label=_pkg_label,
-                        value=_msg_text,
-                        height=160,
-                        key=f"{_ta_key}_{selected_id}",
+                        label="SNS掲載許可確認文",
+                        value=_sns_msg,
+                        height=280,
+                        key=f"sns_perm_msg_{selected_id}",
                         label_visibility="collapsed",
                     )
-                    st.divider()
+                    st.caption("返答後は「G. 顧客情報」欄の「SNS掲載許可ステータス」を更新してください。")
+
 
 
 # ─── Tab 3: ジョブ比較 ────────────────────────────────────────────────────────

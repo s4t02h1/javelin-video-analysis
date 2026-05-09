@@ -156,24 +156,59 @@ def collect_output_files(job_id: str) -> List[str]:
     return sorted(files)
 
 
+# ── ステータス定数 ────────────────────────────────────────────────────────────
+
+# job.json の status フィールドに使用するステータス値
+JOB_STATUSES = [
+    "created",          # 受付済み
+    "uploaded",         # 動画アップロード済み
+    "running",          # 解析中
+    "completed",        # 解析完了
+    "reviewing",        # 内容確認中
+    "ready_to_deliver", # 納品準備完了
+    "delivered",        # 納品済み
+    "failed",           # エラー
+    "archived",         # 保管済み
+]
+
+JOB_STATUS_LABELS = {
+    "created":          "受付済み",
+    "uploaded":         "動画アップロード済み",
+    "running":          "解析中",
+    "completed":        "解析完了",
+    "reviewing":        "内容確認中",
+    "ready_to_deliver": "納品準備完了",
+    "delivered":        "納品済み",
+    "failed":           "エラー",
+    "archived":         "保管済み",
+}
+
 # ── 顧客情報 (customer_info.json) ─────────────────────────────────────────────
 
 _CUSTOMER_INFO_DEFAULTS: dict = {
     # ── 基本情報
     "customer_name":              "",
+    "nickname":                   "",           # Phase2追加: ニックネーム
     "instagram_id":               "",
     "event":                      "javelin",
     # ── 身体情報
     "dominant_arm":               "unknown",    # right / left / unknown  (正式フィールド)
     "height_m":                   None,
+    "athletic_career":            "",           # Phase2追加: 競技歴
     # ── 撮影情報
     "filming_angle":              "unknown",    # side / back / front / diagonal / unknown  (正式フィールド)
     # ── 許諾・プラン
-    "permission_for_social_post": "unknown",    # yes / no / unknown
+    "permission_for_social_post": "unknown",    # unknown / allowed / anonymous / denied
+    "anonymization_note":         "",           # Phase2追加: 匿名化メモ
     "plan":                       "free_preview",  # free_preview / data_sheet / full_report
     "payment_status":             "unpaid",     # unpaid / paid / free
+    # ── 日程
+    "received_at":                "",           # Phase2追加: 受付日
+    "delivery_scheduled_note":    "",           # Phase2追加: 納品予定メモ
+    "delivered_at":               "",           # Phase2追加: 納品済み日時
     # ── メモ
     "notes":                      "",
+    "admin_memo":                 "",           # Phase2追加: 管理者メモ
     "request_note":               "",           # 後方互換
     "coach_comment":              "",
     # ── 管理
