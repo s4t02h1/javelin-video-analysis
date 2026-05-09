@@ -21,7 +21,8 @@ import numpy as np  # type: ignore
 
 from src.pipelines.pose_analysis import PoseAnalyzer
 from src.data_exporter import export_pose_landmarks_csv
-from src.frame_extractor import extract_representative_frames
+from src.frame_extractor import extract_representative_frames, extract_smart_frames
+from src.valid_segment_detector import detect_valid_pose_segment, save_valid_segment
 from src.graph_generator import generate_graphs_for_job
 from src.pdf_report_generator import generate_pdf_report_for_job
 from src.analysis_summary import generate_analysis_summary_for_job
@@ -878,6 +879,26 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
         if csv_rel_path:
             report["data_files"] = {"pose_landmarks_csv": csv_rel_path}
 
+        # ── 有効解析区間の検出・保存 ─────────────────────────────────────────────
+        _valid_segment: Optional[dict] = None
+        try:
+            _vs_csv: Optional[Path] = None
+            try:
+                _vs_csv = _csv_path if (_csv_path is not None and Path(_csv_path).exists()) else None
+            except Exception:
+                pass
+            if _vs_csv is not None:
+                _valid_segment = detect_valid_pose_segment(_vs_csv)
+                _vs_out = _vs_csv.parent / "valid_segment.json"
+                save_valid_segment(_valid_segment, _vs_out)
+                report.setdefault("data_files", {})["valid_segment"] = (
+                    "report/valid_segment.json"
+                    if _vs_csv.parent.name == "report"
+                    else "valid_segment.json"
+                )
+        except Exception as _vs_err:
+            logger.warning(f"Failed to detect valid segment: {_vs_err}")
+
         # ── 代表フレーム画像の切り出し ──────────────────────────────────────────
         try:
             _out_p = Path(output_path)
@@ -890,7 +911,17 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
                 _frames_prefix = "frames"
             # all_variants で複数回呼ばれる場合は既存ディレクトリがあればスキップ
             if not _frames_dir.exists():
-                _frame_paths = extract_representative_frames(input_path, _frames_dir)
+                # CSV が存在すればスマートフレーム選択、なければ均等割合で抽出
+                try:
+                    _csv_for_frames = _csv_path if (_csv_path is not None and _csv_path.exists()) else None
+                except Exception:
+                    _csv_for_frames = None
+                _frame_paths = extract_smart_frames(
+                    input_path,
+                    _frames_dir,
+                    csv_path=_csv_for_frames,
+                    valid_segment=_valid_segment,
+                )
                 if _frame_paths:
                     _rel_paths = [
                         f"{_frames_prefix}/{Path(p).name}" for p in _frame_paths

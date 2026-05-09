@@ -315,7 +315,8 @@ def _sanitize_for_helvetica(text: str) -> str:
 
 # ── ページビルダー関数 ────────────────────────────────────────────────────────
 
-def _build_cover(job: dict, rep: dict, styles: dict) -> List:
+def _build_cover(job: dict, rep: dict, styles: dict,
+                 job_dir: Optional[Path] = None) -> List:
     story = []
     story.append(Spacer(1, 4.0 * cm))
     story.append(Paragraph("動作解析レポート", styles["cover_title"]))
@@ -341,8 +342,16 @@ def _build_cover(job: dict, rep: dict, styles: dict) -> List:
     height_m   = job.get("height_m")
     height_str = f"{height_m:.2f} m" if height_m else "—"
 
+    # status が "running" でも output/ に mp4 があれば Completed と表示
+    raw_status = str(job.get("status", "—")).lower()
+    effective_status = str(job.get("status", "—")).capitalize()
+    if raw_status == "running" and job_dir is not None:
+        _out_dir = job_dir / "output"
+        if _out_dir.exists() and any(_out_dir.glob("*.mp4")):
+            effective_status = "Completed"
+
     pairs = [
-        ("Status",      str(job.get("status", "—")).capitalize()),
+        ("Status",      effective_status),
         ("Mode",        str(job.get("mode", "—"))),
         ("Height",      height_str),
         ("Input video", input_name),
@@ -357,25 +366,41 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
     story.append(Paragraph("解析サマリー  /  Analysis Summary", styles["section_heading"]))
     story.extend(_hr(styles))
 
-    analysis = rep.get("analysis", {})
+    analysis   = rep.get("analysis", {})
     video_info = rep.get("video_info", {})
 
-    # 動画情報
+    # ── analysis_summary.json のロード（存在すれば拡張データとして使用）────
+    summary_path = report_dir / "analysis_summary.json"
+    summary: dict = (_load_json(summary_path) or {}) if summary_path.exists() else {}
+    use_summary = bool(summary) and summary.get("status") != "skipped"
+
+    # ── 動画情報 ─────────────────────────────────────────────────────────────
     story.append(Paragraph("動画情報", styles["label"]))
-    vid_pairs: list[tuple[str, str]] = [
-        ("Resolution",  f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
-        ("FPS",         str(video_info.get("fps", "—"))),
-        ("Total frames",str(video_info.get("total_frames", "—"))),
-        ("Duration",    f"{video_info.get('duration_s', '—')} s"),
-    ]
+    if use_summary:
+        sv = summary.get("video", {}) or {}
+        duration_val  = sv.get("duration_sec")
+        frame_cnt_val = sv.get("frame_count")
+        vid_pairs: list[tuple[str, str]] = [
+            ("Duration",     f"{duration_val:.3f} sec" if isinstance(duration_val, (int, float)) else "—"),
+            ("Frame count",  str(frame_cnt_val) if frame_cnt_val is not None else "—"),
+            ("Resolution",   f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
+            ("FPS",          str(video_info.get("fps", "—"))),
+        ]
+    else:
+        vid_pairs = [
+            ("Resolution",   f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
+            ("FPS",          str(video_info.get("fps", "—"))),
+            ("Total frames", str(video_info.get("total_frames", "—"))),
+            ("Duration",     f"{video_info.get('duration_s', '—')} s"),
+        ]
     story.append(_kv_table(vid_pairs, styles))
     story.append(Spacer(1, 0.4 * cm))
 
-    # 解析結果
+    # ── 姿勢解析メトリクス（report.json より）──────────────────────────────
     if analysis:
         story.append(Paragraph("姿勢解析メトリクス", styles["label"]))
         ana_pairs: list[tuple[str, str]] = [
-            ("Height (m)",              f"{analysis.get('height_m', '—')}"),
+            ("Height (m)",              str(analysis.get("height_m", "—"))),
             ("Calibrated",              str(analysis.get("calibrated", "—"))),
             ("Pose detected frames",    str(analysis.get("pose_detected_frames", "—"))),
             ("Pose detection rate",     f"{analysis.get('pose_detection_rate', '—'):.0%}"
@@ -388,7 +413,155 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
         story.append(_kv_table(ana_pairs, styles))
         story.append(Spacer(1, 0.4 * cm))
 
-    # ファイル有無サマリ
+    # ── analysis_summary.json の拡張データ ──────────────────────────────────
+    if use_summary:
+        # Key Metrics
+        km = summary.get("key_metrics", {}) or {}
+        if km:
+            story.append(Paragraph("Key Metrics", styles["label"]))
+            max_h_time  = km.get("right_wrist_max_height_time_sec")
+            max_h_norm  = km.get("right_wrist_max_height_norm")
+            torso_start = km.get("torso_center_x_start")
+            torso_end   = km.get("torso_center_x_end")
+            story.append(_kv_table([
+                ("Right wrist max height (time)", f"{max_h_time:.3f} sec" if isinstance(max_h_time, (int, float)) else "—"),
+                ("Right wrist max height (norm)", f"{max_h_norm:.4f}"     if isinstance(max_h_norm, (int, float)) else "—"),
+                ("Torso center X (start)",        f"{torso_start:.4f}"    if isinstance(torso_start, (int, float)) else "—"),
+                ("Torso center X (end)",          f"{torso_end:.4f}"      if isinstance(torso_end,   (int, float)) else "—"),
+            ], styles))
+            story.append(Spacer(1, 0.4 * cm))
+
+        # Pose Quality
+        pq = summary.get("pose_quality", {}) or {}
+        if pq:
+            story.append(Paragraph("Pose Quality", styles["label"]))
+            missing_ratio = pq.get("right_wrist_missing_ratio")
+            missing_str   = f"{missing_ratio * 100:.1f}%" if isinstance(missing_ratio, (int, float)) else "—"
+            avg_vis = pq.get("average_visibility") or {}
+
+            def _vis_str(key: str) -> str:
+                v = avg_vis.get(key)
+                return f"{v:.3f}" if isinstance(v, (int, float)) else "—"
+
+            story.append(_kv_table([
+                ("Right wrist missing ratio",       missing_str),
+                ("Avg visibility: right_shoulder",  _vis_str("right_shoulder")),
+                ("Avg visibility: right_elbow",     _vis_str("right_elbow")),
+                ("Avg visibility: right_wrist",     _vis_str("right_wrist")),
+                ("Avg visibility: left_shoulder",   _vis_str("left_shoulder")),
+                ("Avg visibility: left_elbow",      _vis_str("left_elbow")),
+                ("Avg visibility: left_wrist",      _vis_str("left_wrist")),
+            ], styles))
+            story.append(Spacer(1, 0.4 * cm))
+
+        # Warnings from analysis_summary.json
+        warnings_list: list = summary.get("warnings") or []
+        if warnings_list:
+            story.append(Paragraph("Warnings", styles["label"]))
+            for w in warnings_list:
+                story.append(Paragraph(f"  • {w}", styles["body_sm"]))
+            story.append(Spacer(1, 0.2 * cm))
+
+    # ── Pose Detection Rate 警告ボックス（< 70% で赤表示）──────────────────
+    detection_rate: Optional[float] = None
+    if isinstance(analysis.get("pose_detection_rate"), float):
+        detection_rate = analysis["pose_detection_rate"]
+    elif use_summary:
+        _pq_dr = summary.get("pose_quality", {}) or {}
+        _missing = _pq_dr.get("right_wrist_missing_ratio")
+        if isinstance(_missing, (int, float)):
+            detection_rate = 1.0 - _missing
+
+    if detection_rate is not None and detection_rate < 0.70:
+        pct_str = f"{detection_rate:.0%}"
+        warn_para = Paragraph(
+            f"警告 / Warning: ポーズ検出率が低い値です ({pct_str})。"
+            " 動画品質・カメラアングル・照明を確認してください。"
+            f"  Pose detection rate is low ({pct_str})."
+            " Please check video quality, camera angle, and lighting.",
+            ParagraphStyle(
+                "WarnText",
+                fontName=_fn(bold=True),
+                fontSize=9,
+                textColor=colors.white,
+                spaceAfter=0,
+                leading=14,
+            ),
+        )
+        warn_tbl = Table([[warn_para]], colWidths=[CONTENT_W], hAlign="LEFT")
+        warn_tbl.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#C0392B")),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+            ("TOPPADDING",    (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(warn_tbl)
+        story.append(Spacer(1, 0.3 * cm))
+
+    # ── 有効解析区間（valid_segment.json）─────────────────────────────────
+    vs_path = report_dir / "valid_segment.json"
+    vs: dict = (_load_json(vs_path) or {}) if vs_path.exists() else {}
+    if vs:
+        story.append(Paragraph("有効解析区間  /  Valid Pose Segment", styles["label"]))
+        vs_ratio = vs.get("valid_ratio")
+        vs_start_f = vs.get("valid_start_frame")
+        vs_end_f   = vs.get("valid_end_frame")
+        vs_start_t = vs.get("valid_start_time_sec")
+        vs_end_t   = vs.get("valid_end_time_sec")
+        vs_valid   = vs.get("valid_frame_count")
+        vs_total   = vs.get("total_frame_count")
+
+        def _ft(v) -> str:
+            return f"{v:.2f} sec" if isinstance(v, (int, float)) else "—"
+
+        vs_pairs: list[tuple[str, str]] = [
+            ("Valid frames",       f"{vs_valid} / {vs_total}" if vs_valid is not None and vs_total is not None else "—"),
+            ("Valid ratio",        f"{vs_ratio:.1%}" if isinstance(vs_ratio, (int, float)) else "—"),
+            ("Start frame",        str(vs_start_f) if vs_start_f is not None else "—"),
+            ("End frame",          str(vs_end_f)   if vs_end_f is not None else "—"),
+            ("Start time",         _ft(vs_start_t)),
+            ("End time",           _ft(vs_end_t)),
+        ]
+        story.append(_kv_table(vs_pairs, styles))
+        story.append(Spacer(1, 0.3 * cm))
+
+        # valid_ratio < 0.7 → 警告ボックス（オレンジ）
+        if isinstance(vs_ratio, (int, float)) and vs_ratio < 0.70:
+            _warn_color = colors.HexColor("#C0392B") if vs_ratio < 0.30 else BRAND_ORANGE
+            _vs_warn_para = Paragraph(
+                f"解析精度に注意 / Caution: 有効ポーズ区間が全体の {vs_ratio:.0%} です。"
+                " 動画品質・カメラアングル・照明を改善すると精度が向上します。"
+                f"  Valid pose coverage is {vs_ratio:.0%}."
+                " Consider improving video quality, camera angle, or lighting.",
+                ParagraphStyle(
+                    "VSWarnText",
+                    fontName=_fn(bold=True),
+                    fontSize=9,
+                    textColor=colors.white,
+                    spaceAfter=0,
+                    leading=14,
+                ),
+            )
+            _vs_warn_tbl = Table([[_vs_warn_para]], colWidths=[CONTENT_W], hAlign="LEFT")
+            _vs_warn_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (-1, -1), _warn_color),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+                ("TOPPADDING",    (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(_vs_warn_tbl)
+            story.append(Spacer(1, 0.2 * cm))
+
+        # warnings リスト
+        vs_warnings: list = vs.get("warnings") or []
+        if vs_warnings:
+            for w in vs_warnings:
+                story.append(Paragraph(f"  • {w}", styles["body_sm"]))
+            story.append(Spacer(1, 0.2 * cm))
+
+    # ── 出力ファイルサマリ ─────────────────────────────────────────────────
     story.append(Paragraph("出力ファイル一覧", styles["label"]))
     frames_dir  = report_dir / "frames"
     graphs_dir  = report_dir / "graphs"
@@ -397,7 +570,9 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
                   if frames_dir.exists() else 0
     graph_count = len(list(graphs_dir.glob("*.png"))) if graphs_dir.exists() else 0
 
-    mp4_list  = [f for f in job.get("output_files", []) if str(f).endswith(".mp4")]
+    # 実際の output/ ディレクトリをスキャン（job["output_files"] は不正確なため）
+    out_dir = report_dir.parent / "output"
+    mp4_list = sorted(out_dir.glob("*.mp4")) if out_dir.exists() else []
 
     summary_pairs: list[tuple[str, str]] = [
         ("Output videos",         f"{len(mp4_list)} file(s)"),
@@ -408,11 +583,10 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
     story.append(_kv_table(summary_pairs, styles))
     story.append(Spacer(1, 0.4 * cm))
 
-    # 出力動画ファイル一覧
     if mp4_list:
         story.append(Paragraph("出力動画ファイル", styles["label"]))
         for mp4 in mp4_list:
-            story.append(Paragraph(f"  • {Path(mp4).name}", styles["body_sm"]))
+            story.append(Paragraph(f"  • {mp4.name}", styles["body_sm"]))
 
     story.append(PageBreak())
     return story
@@ -792,16 +966,12 @@ def generate_pdf_report_for_job(job_dir: Path) -> Path:
 
     # ストーリー組み立て
     story: List = []
-    story.extend(_build_cover(job, rep, styles))
+    story.extend(_build_cover(job, rep, styles, job_dir=job_dir))
     try:
         story.extend(_build_coach_comment(customer_info, styles))   # page 2: 依頼情報
     except Exception as _ce:
         logger.warning("[pdf_report_generator] coach comment section skipped: %s", _ce)
     story.extend(_build_analysis_summary(job, rep, report_dir, styles))
-    try:
-        story.extend(_build_analysis_summary_json_section(report_dir, styles))
-    except Exception as _ase:
-        logger.warning("[pdf_report_generator] analysis summary JSON section skipped: %s", _ase)
     story.extend(_build_frames_pages(report_dir, styles, images_per_page=4))
     story.extend(_build_graphs_pages(report_dir, styles, images_per_page=2))
     story.extend(_build_disclaimer(styles))
