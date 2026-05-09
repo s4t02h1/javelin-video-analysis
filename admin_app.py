@@ -201,6 +201,43 @@ except ImportError:
     def load_video_quality_report(*_a, **_kw):  # type: ignore[misc]
         return None
 
+
+# ── Phase 11: アノテーション管理 ───────────────────────────────────────────────
+try:
+    from src.annotation.manager import (
+        ANNOTATION_STATUSES,
+        ANNOTATION_STATUS_LABELS,
+        CONSENT_FOR_TRAINING_DATA,
+        CONSENT_TRAINING_LABELS,
+        SNS_PERMISSION_VALUES,
+        SNS_PERMISSION_LABELS as ANNOTATION_SNS_LABELS,
+        PRIVACY_FLAG_LABELS,
+        LABEL_SOURCE_LABELS,
+        create_annotation_draft_for_job,
+        generate_annotation_from_job,
+        load_annotation,
+        list_annotations,
+        find_annotation_for_job,
+        save_annotation,
+        update_annotation,
+        set_annotation_status,
+        archive_annotation,
+        compute_dataset_stats,
+    )
+    from src.annotation.exporter import export_annotations
+    _PHASE11_AVAILABLE = True
+except ImportError:
+    _PHASE11_AVAILABLE = False
+
+    def list_annotations(*_a, **_kw):  # type: ignore[misc]
+        return []
+
+    def find_annotation_for_job(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def compute_dataset_stats(*_a, **_kw):  # type: ignore[misc]
+        return {}
+
 _RUN_PY = _REPO_ROOT / "run.py"
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
@@ -785,8 +822,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue, tab_orders = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理", "💰 注文管理"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue, tab_orders, tab_annotations = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理", "💰 注文管理", "📋 アノテーション"]
 )
 
 
@@ -2862,6 +2899,163 @@ with tab_history:
                     else:
                         st.info("動画品質チェックがまだ実行されていません。「📊 動画品質チェックを実行」を押してください。")
 
+            # ── P11. アノテーション管理（Phase 11）────────────────────────────────
+            with st.expander("📋 P11. アノテーション管理", expanded=False):
+                if not _PHASE11_AVAILABLE:
+                    st.warning(
+                        "Phase 11 モジュールが利用できません。"
+                        "`src/annotation/manager.py` を確認してください。"
+                    )
+                else:
+                    _p11_job_dir = get_job_dir(selected_id)
+                    _p11_ann = find_annotation_for_job(selected_id)
+
+                    st.caption(
+                        "⚠️ アノテーションデータは競技動作の参考分析用途のみに使用してください。  \n"
+                        "医療診断・専門的競技指導の代替ではありません。  \n"
+                        "SNS掲載許可と教師データ利用許可は別々に管理します。"
+                    )
+
+                    # ── ドラフト生成 ────────────────────────────────────────────
+                    _p11_col1, _p11_col2 = st.columns(2)
+                    with _p11_col1:
+                        if st.button("📋 アノテーションドラフト生成", key=f"p11_draft_{selected_id}"):
+                            with st.spinner("生成中..."):
+                                try:
+                                    _p11_path = create_annotation_draft_for_job(_p11_job_dir)
+                                    st.success(f"✅ ドラフトを生成しました: `{_p11_path.name}`")
+                                    st.rerun()
+                                except Exception as _p11e:
+                                    st.error(f"生成エラー: {_p11e}")
+
+                    if _p11_ann is None:
+                        st.info("このジョブのアノテーションはまだ作成されていません。「📋 アノテーションドラフト生成」を押してください。")
+                    else:
+                        _p11_ann_id     = _p11_ann["annotation_id"]
+                        _p11_status     = _p11_ann.get("annotation_status", "draft")
+                        _p11_consent    = _p11_ann.get("consent_for_training_data", "unknown")
+                        _p11_sns        = _p11_ann.get("sns_permission", "unknown")
+                        _p11_flags      = _p11_ann.get("privacy_flags", [])
+
+                        # 概要表示
+                        _p11_status_lbl  = ANNOTATION_STATUS_LABELS.get(_p11_status, _p11_status)
+                        _p11_consent_lbl = CONSENT_TRAINING_LABELS.get(_p11_consent, _p11_consent)
+                        _p11_sns_lbl     = ANNOTATION_SNS_LABELS.get(_p11_sns, _p11_sns)
+                        st.markdown(
+                            f"**ステータス:** {_p11_status_lbl}  \n"
+                            f"**教師データ利用:** {_p11_consent_lbl}  \n"
+                            f"**SNS掲載許可:** {_p11_sns_lbl}  \n"
+                            f"**アノテーションID:** `{_p11_ann_id}`"
+                        )
+
+                        # ── ステータス変更 ──────────────────────────────────────
+                        st.markdown("**ステータス変更**")
+                        _p11_new_status = st.selectbox(
+                            "ステータスを選択",
+                            ANNOTATION_STATUSES,
+                            index=ANNOTATION_STATUSES.index(_p11_status) if _p11_status in ANNOTATION_STATUSES else 0,
+                            format_func=lambda s: ANNOTATION_STATUS_LABELS.get(s, s),
+                            key=f"p11_status_{selected_id}",
+                        )
+                        if st.button("ステータスを保存", key=f"p11_save_status_{selected_id}"):
+                            try:
+                                set_annotation_status(_p11_ann_id, _p11_new_status)
+                                st.success(f"✅ ステータスを「{ANNOTATION_STATUS_LABELS.get(_p11_new_status, _p11_new_status)}」に変更しました。")
+                                st.rerun()
+                            except Exception as _p11se:
+                                st.error(f"ステータス変更エラー: {_p11se}")
+
+                        st.markdown("---")
+
+                        # ── 利用許可設定 ────────────────────────────────────────
+                        st.markdown("**利用許可設定**（SNS掲載許可と教師データ利用許可は独立しています）")
+                        _p11_cols = st.columns(2)
+                        with _p11_cols[0]:
+                            _p11_new_consent = st.selectbox(
+                                "教師データ利用許可",
+                                CONSENT_FOR_TRAINING_DATA,
+                                index=CONSENT_FOR_TRAINING_DATA.index(_p11_consent) if _p11_consent in CONSENT_FOR_TRAINING_DATA else 0,
+                                format_func=lambda c: CONSENT_TRAINING_LABELS.get(c, c),
+                                key=f"p11_consent_{selected_id}",
+                            )
+                        with _p11_cols[1]:
+                            _p11_new_sns = st.selectbox(
+                                "SNS掲載許可",
+                                SNS_PERMISSION_VALUES,
+                                index=SNS_PERMISSION_VALUES.index(_p11_sns) if _p11_sns in SNS_PERMISSION_VALUES else 0,
+                                format_func=lambda s: ANNOTATION_SNS_LABELS.get(s, s),
+                                key=f"p11_sns_{selected_id}",
+                            )
+
+                        # プライバシーフラグ
+                        _p11_new_flags = st.multiselect(
+                            "プライバシーフラグ",
+                            list(PRIVACY_FLAG_LABELS.keys()),
+                            default=_p11_flags,
+                            format_func=lambda f: PRIVACY_FLAG_LABELS.get(f, f),
+                            key=f"p11_flags_{selected_id}",
+                        )
+
+                        # メモ
+                        _p11_new_notes = st.text_area(
+                            "管理者メモ",
+                            value=_p11_ann.get("notes", ""),
+                            key=f"p11_notes_{selected_id}",
+                            height=80,
+                        )
+
+                        if st.button("利用許可・フラグ・メモを保存", key=f"p11_save_perm_{selected_id}"):
+                            try:
+                                update_annotation(_p11_ann_id, {
+                                    "consent_for_training_data": _p11_new_consent,
+                                    "sns_permission":            _p11_new_sns,
+                                    "privacy_flags":             _p11_new_flags,
+                                    "notes":                     _p11_new_notes,
+                                })
+                                st.success("✅ 設定を保存しました。")
+                                st.rerun()
+                            except Exception as _p11pe:
+                                st.error(f"保存エラー: {_p11pe}")
+
+                        st.markdown("---")
+
+                        # ── フェーズラベル表示 ───────────────────────────────────
+                        _p11_phase_labels = _p11_ann.get("phase_labels", {})
+                        if _p11_phase_labels:
+                            st.markdown("**フェーズラベル（自動推定結果）**")
+                            _p11_pl_rows = []
+                            _p11_phase_jp = {
+                                "approach":       "助走",
+                                "cross_step":     "クロスステップ",
+                                "withdrawal":     "槍を引く",
+                                "block":          "ブロック",
+                                "release":        "リリース",
+                                "follow_through": "フォロースルー",
+                                "recovery":       "リカバリー",
+                            }
+                            for _pk, _pv in _p11_phase_labels.items():
+                                _jp = _p11_phase_jp.get(_pk, _pk)
+                                if "start_frame" in _pv:
+                                    _frames = f"{_pv.get('start_frame', '—')} - {_pv.get('end_frame', '—')}"
+                                else:
+                                    _frames = str(_pv.get("frame", "—"))
+                                _conf = _pv.get("confidence")
+                                _conf_str = f"{_conf:.2f}" if _conf is not None else "—"
+                                _src  = LABEL_SOURCE_LABELS.get(_pv.get("source", "unknown"), _pv.get("source", "—"))
+                                _rev  = "✅" if _pv.get("reviewed") else "—"
+                                _p11_pl_rows.append({
+                                    "フェーズ": _jp,
+                                    "フレーム": _frames,
+                                    "ソース": _src,
+                                    "信頼度": _conf_str,
+                                    "確認済": _rev,
+                                })
+                            import pandas as _p11_pd
+                            st.dataframe(
+                                _p11_pd.DataFrame(_p11_pl_rows),
+                                use_container_width=True, hide_index=True,
+                            )
+
             # ── P. S3納品 / 納品URL発行 ─────────────────────────────────────────
             with st.expander("☁️ P. S3納品 / 納品URL発行", expanded=False):
                 _s3_modules_ok = _S3_MODULES_AVAILABLE
@@ -4505,4 +4699,277 @@ with tab_orders:
         st.info(f"残り {_unchecked} 項目を確認してください。")
 
     st.caption("⚠️ 法務文書（docs/legal/ 以下）はドラフトです。正式公開前に法律専門家による確認が必要です。")
+
+
+# ─── Tab 9: アノテーション管理（Phase 11）─────────────────────────────────────
+
+with tab_annotations:
+    st.header("📋 アノテーション管理（Phase 11）")
+    st.caption(
+        "⚠️ アノテーションデータは競技動作の参考分析用途のみです。  \n"
+        "医療診断・怪我の診断・専門的競技指導の代替ではありません。  \n"
+        "SNS掲載許可と教師データ利用許可は独立して管理してください。  \n"
+        "このデータはモデル訓練用の候補データです。完全な正解ラベルではありません。"
+    )
+
+    if not _PHASE11_AVAILABLE:
+        st.error(
+            "Phase 11 モジュールが利用できません。"
+            "`src/annotation/manager.py` と `src/annotation/exporter.py` を確認してください。"
+        )
+    else:
+        _ann_tab_list, _ann_tab_stats, _ann_tab_export = st.tabs(
+            ["📋 一覧", "📊 統計", "📤 エクスポート"]
+        )
+
+        # ─── 一覧タブ ───────────────────────────────────────────────────────────
+        with _ann_tab_list:
+            st.subheader("アノテーション一覧")
+
+            # フィルタ
+            _afc1, _afc2 = st.columns(2)
+            with _afc1:
+                _ann_filter_status = st.multiselect(
+                    "ステータスで絞り込み",
+                    ANNOTATION_STATUSES,
+                    default=[],
+                    format_func=lambda s: ANNOTATION_STATUS_LABELS.get(s, s),
+                    key="ann_filter_status",
+                )
+            with _afc2:
+                _ann_filter_consent = st.multiselect(
+                    "教師データ利用許可で絞り込み",
+                    CONSENT_FOR_TRAINING_DATA,
+                    default=[],
+                    format_func=lambda c: CONSENT_TRAINING_LABELS.get(c, c),
+                    key="ann_filter_consent",
+                )
+
+            _all_anns = list_annotations(
+                status_filter=_ann_filter_status if _ann_filter_status else None,
+            )
+            if _ann_filter_consent:
+                _all_anns = [a for a in _all_anns if a.get("consent_for_training_data") in _ann_filter_consent]
+
+            st.caption(f"{len(_all_anns)} 件")
+
+            if not _all_anns:
+                st.info("アノテーションがありません。各ジョブの「P11. アノテーション管理」から生成してください。")
+            else:
+                import pandas as _ann_pd
+                _ann_rows = []
+                for _a in _all_anns:
+                    _a_status  = _a.get("annotation_status", "draft")
+                    _a_consent = _a.get("consent_for_training_data", "unknown")
+                    _a_rel = _a.get("event_labels", {}).get("release", {}).get("frame")
+                    _a_blk = _a.get("event_labels", {}).get("block_contact", {}).get("frame")
+                    _ann_rows.append({
+                        "アノテーションID": _a.get("annotation_id", ""),
+                        "ジョブID":         _a.get("job_id", ""),
+                        "ステータス":       ANNOTATION_STATUS_LABELS.get(_a_status, _a_status),
+                        "腕":               _a.get("dominant_arm", "—"),
+                        "品質":             _a.get("video_quality_level", "—"),
+                        "リリース":         str(_a_rel) if _a_rel is not None else "—",
+                        "ブロック":         str(_a_blk) if _a_blk is not None else "—",
+                        "教師データ許可":   CONSENT_TRAINING_LABELS.get(_a_consent, _a_consent),
+                        "作成日":           _a.get("created_at", "")[:10],
+                    })
+                st.dataframe(
+                    _ann_pd.DataFrame(_ann_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # 個別詳細
+                st.divider()
+                st.subheader("アノテーション詳細・編集")
+                _ann_ids = [a.get("annotation_id", "") for a in _all_anns]
+                _sel_ann_id = st.selectbox("アノテーションを選択", _ann_ids, key="ann_select_detail")
+                if _sel_ann_id:
+                    _sel_ann = load_annotation(_sel_ann_id)
+                    if _sel_ann:
+                        _sa_status  = _sel_ann.get("annotation_status", "draft")
+                        _sa_consent = _sel_ann.get("consent_for_training_data", "unknown")
+                        _sa_sns     = _sel_ann.get("sns_permission", "unknown")
+                        _sa_flags   = _sel_ann.get("privacy_flags", [])
+
+                        _sd_c1, _sd_c2 = st.columns(2)
+                        with _sd_c1:
+                            st.markdown(f"**ジョブID:** `{_sel_ann.get('job_id', '—')}`")
+                            st.markdown(f"**作成日時:** {_sel_ann.get('created_at', '—')}")
+                            _new_ann_status = st.selectbox(
+                                "ステータス",
+                                ANNOTATION_STATUSES,
+                                index=ANNOTATION_STATUSES.index(_sa_status) if _sa_status in ANNOTATION_STATUSES else 0,
+                                format_func=lambda s: ANNOTATION_STATUS_LABELS.get(s, s),
+                                key=f"ann_det_status_{_sel_ann_id}",
+                            )
+                            _new_ann_consent = st.selectbox(
+                                "教師データ利用許可",
+                                CONSENT_FOR_TRAINING_DATA,
+                                index=CONSENT_FOR_TRAINING_DATA.index(_sa_consent) if _sa_consent in CONSENT_FOR_TRAINING_DATA else 0,
+                                format_func=lambda c: CONSENT_TRAINING_LABELS.get(c, c),
+                                key=f"ann_det_consent_{_sel_ann_id}",
+                            )
+                        with _sd_c2:
+                            st.markdown(f"**アノテーター:** {_sel_ann.get('annotator', '—')}")
+                            st.markdown(f"**更新日時:** {_sel_ann.get('updated_at', '—')}")
+                            _new_ann_sns = st.selectbox(
+                                "SNS掲載許可（教師データ利用許可とは独立）",
+                                SNS_PERMISSION_VALUES,
+                                index=SNS_PERMISSION_VALUES.index(_sa_sns) if _sa_sns in SNS_PERMISSION_VALUES else 0,
+                                format_func=lambda s: ANNOTATION_SNS_LABELS.get(s, s),
+                                key=f"ann_det_sns_{_sel_ann_id}",
+                            )
+                            _new_ann_flags = st.multiselect(
+                                "プライバシーフラグ",
+                                list(PRIVACY_FLAG_LABELS.keys()),
+                                default=_sa_flags,
+                                format_func=lambda f: PRIVACY_FLAG_LABELS.get(f, f),
+                                key=f"ann_det_flags_{_sel_ann_id}",
+                            )
+
+                        _new_ann_notes = st.text_area(
+                            "管理者メモ",
+                            value=_sel_ann.get("notes", ""),
+                            key=f"ann_det_notes_{_sel_ann_id}",
+                            height=80,
+                        )
+
+                        if st.button("変更を保存", key=f"ann_det_save_{_sel_ann_id}"):
+                            try:
+                                update_annotation(_sel_ann_id, {
+                                    "annotation_status":          _new_ann_status,
+                                    "consent_for_training_data":  _new_ann_consent,
+                                    "sns_permission":             _new_ann_sns,
+                                    "privacy_flags":              _new_ann_flags,
+                                    "notes":                      _new_ann_notes,
+                                })
+                                st.success("✅ 保存しました。")
+                                st.rerun()
+                            except Exception as _ann_save_e:
+                                st.error(f"保存エラー: {_ann_save_e}")
+
+                        # フェーズラベル表示
+                        with st.expander("フェーズラベル詳細", expanded=False):
+                            _det_phase_labels = _sel_ann.get("phase_labels", {})
+                            _det_pl_rows = []
+                            _det_phase_jp = {
+                                "approach": "助走", "cross_step": "クロスステップ",
+                                "withdrawal": "槍を引く", "block": "ブロック",
+                                "release": "リリース", "follow_through": "フォロースルー",
+                                "recovery": "リカバリー",
+                            }
+                            for _dpk, _dpv in _det_phase_labels.items():
+                                _frames_s = (
+                                    f"{_dpv.get('start_frame', '—')} - {_dpv.get('end_frame', '—')}"
+                                    if "start_frame" in _dpv else str(_dpv.get("frame", "—"))
+                                )
+                                _dc = _dpv.get("confidence")
+                                _det_pl_rows.append({
+                                    "フェーズ":   _det_phase_jp.get(_dpk, _dpk),
+                                    "フレーム":   _frames_s,
+                                    "ソース":     LABEL_SOURCE_LABELS.get(_dpv.get("source", "unknown"), "—"),
+                                    "信頼度":     f"{_dc:.2f}" if _dc is not None else "—",
+                                    "確認済":     "✅" if _dpv.get("reviewed") else "—",
+                                })
+                            st.dataframe(_ann_pd.DataFrame(_det_pl_rows), use_container_width=True, hide_index=True)
+
+        # ─── 統計タブ ───────────────────────────────────────────────────────────
+        with _ann_tab_stats:
+            st.subheader("データセット統計")
+            if st.button("統計を更新", key="ann_stats_refresh"):
+                st.rerun()
+
+            _stats = compute_dataset_stats()
+            if _stats.get("total", 0) == 0:
+                st.info("アノテーションがまだありません。")
+            else:
+                _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+                _sc1.metric("総件数",       _stats.get("total", 0))
+                _sc2.metric("確定済み",     _stats.get("confirmed", 0))
+                _sc3.metric("教師データ可", _stats.get("training_data_allowed", 0))
+                _sc4.metric("エクスポート可", _stats.get("export_allowed", 0))
+
+                _sc5, _sc6 = st.columns(2)
+                _sc5.metric("リリースラベルあり",   _stats.get("has_release_label", 0))
+                _sc6.metric("ブロックラベルあり",   _stats.get("has_block_label", 0))
+
+                st.markdown("**ステータス別**")
+                import pandas as _st_pd
+                _status_df_rows = [
+                    {"ステータス": ANNOTATION_STATUS_LABELS.get(s, s), "件数": c}
+                    for s, c in _stats.get("by_status", {}).items()
+                ]
+                st.dataframe(_st_pd.DataFrame(_status_df_rows), use_container_width=True, hide_index=True)
+
+                st.markdown("**教師データ利用許可別**")
+                _consent_df_rows = [
+                    {"許可種別": CONSENT_TRAINING_LABELS.get(c, c), "件数": cnt}
+                    for c, cnt in _stats.get("by_consent", {}).items()
+                ]
+                st.dataframe(_st_pd.DataFrame(_consent_df_rows), use_container_width=True, hide_index=True)
+
+        # ─── エクスポートタブ ────────────────────────────────────────────────────
+        with _ann_tab_export:
+            st.subheader("教師データ エクスポート")
+            st.caption(
+                "⚠️ エクスポートには以下の安全フィルタが適用されます:  \n"
+                "- `consent_for_training_data = denied` は常に除外  \n"
+                "- `consent_for_training_data = unknown` はデフォルト除外  \n"
+                "- `annotation_status = confirmed` のみを対象  \n"
+                "- `source_video_path` は出力に含まれません  \n"
+                "- 個人情報（氏名・学校名・連絡先）は出力に含まれません"
+            )
+
+            _exp_include_unknown = st.checkbox(
+                "consent=unknown も含める（通常は除外推奨）",
+                value=False,
+                key="ann_exp_include_unknown",
+            )
+            _exp_dry_run = st.checkbox(
+                "ドライランモード（ファイルを書き出さず件数確認のみ）",
+                value=True,
+                key="ann_exp_dry_run",
+            )
+
+            if st.button("📤 エクスポート実行", key="ann_export_run"):
+                with st.spinner("エクスポート中..."):
+                    try:
+                        _exp_result = export_annotations(
+                            include_unknown_consent=_exp_include_unknown,
+                            dry_run=_exp_dry_run,
+                        )
+                        if _exp_dry_run:
+                            st.info(
+                                f"ドライラン結果: エクスポート予定 **{_exp_result['exported']}** 件 / "
+                                f"除外 **{_exp_result['excluded']}** 件"
+                            )
+                        else:
+                            st.success(
+                                f"✅ エクスポート完了: **{_exp_result['exported']}** 件 / "
+                                f"除外 **{_exp_result['excluded']}** 件  \n"
+                                f"出力先: `{_exp_result['output_dir']}`"
+                            )
+
+                        if _exp_result.get("excluded_reasons"):
+                            st.markdown("**除外理由:**")
+                            for _reason, _cnt in _exp_result["excluded_reasons"].items():
+                                st.write(f"- {_reason}: {_cnt} 件")
+
+                        if _exp_result.get("warnings"):
+                            st.markdown("**⚠️ 警告:**")
+                            for _w in _exp_result["warnings"]:
+                                st.warning(_w)
+
+                        if not _exp_dry_run:
+                            if _exp_result.get("jsonl_path"):
+                                st.code(f"JSONL: {_exp_result['jsonl_path']}")
+                            if _exp_result.get("csv_path"):
+                                st.code(f"CSV: {_exp_result['csv_path']}")
+                            if _exp_result.get("event_jsonl_path"):
+                                st.code(f"イベントJSONL: {_exp_result['event_jsonl_path']}")
+
+                    except Exception as _exp_e:
+                        st.error(f"エクスポートエラー: {_exp_e}")
 

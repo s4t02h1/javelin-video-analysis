@@ -271,6 +271,37 @@ def _step_detect_phases(job_id: str, job_dir: Path) -> None:
         logger.warning("[worker] detect_phases 失敗（継続）: job_id=%s error=%s", job_id, e)
 
 
+def _step_create_annotation_draft(job_id: str, job_dir: Path) -> None:
+    """Phase 10推定結果からアノテーションドラフトを作成する（非致命的）。
+
+    Phase 11 追加ステップ。annotation_status は draft にする。
+    人間が管理画面で confirmed にする必要がある。
+    すでにアノテーションが存在する場合はスキップする。
+    失敗しても通常の解析処理は継続する。
+    """
+    try:
+        import yaml  # type: ignore[import-not-found]
+        cfg_path = Path(__file__).resolve().parent / "configs" / "annotation.yaml"
+        cfg: dict = {}
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as _f:
+                _loaded = yaml.safe_load(_f)
+            cfg = _loaded if isinstance(_loaded, dict) else {}
+
+        if not cfg.get("enabled", True):
+            logger.info("[worker] アノテーション機能が無効です: job_id=%s", job_id)
+            return
+        if not cfg.get("create_draft_after_phase_detection", True):
+            logger.info("[worker] Phase推定後のドラフト自動生成が無効です: job_id=%s", job_id)
+            return
+
+        from src.annotation.manager import create_annotation_draft_for_job
+        out = create_annotation_draft_for_job(job_dir)
+        logger.info("[worker] annotation draft 作成完了: %s job_id=%s", out.name, job_id)
+    except Exception as e:
+        logger.warning("[worker] annotation draft 作成失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
 def _step_generate_reports(job_id: str, job_dir: Path) -> List[str]:
     """PDF レポートを生成する。失敗しても継続可能なステップのみ。"""
     generated: List[str] = []
@@ -480,6 +511,8 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
         # Phase 10: 非致命的ステップ（失敗しても処理継続）
         "check_video_quality": lambda: _step_check_video_quality(job_id, job_dir),
         "detect_phases":       lambda: _step_detect_phases(job_id, job_dir),
+        # Phase 11: アノテーションドラフト作成（非致命的）
+        "create_annotation_draft": lambda: _step_create_annotation_draft(job_id, job_dir),
         "generate_reports":    lambda: _step_generate_reports(job_id, job_dir),
         "generate_packages":   lambda: _step_generate_packages(job_id, job_dir),
         "upload_to_s3":        lambda: _step_upload_to_s3(job_id, job_dir),

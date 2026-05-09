@@ -1,0 +1,69 @@
+# configs/annotation.yaml — Phase 11 アノテーション管理設定
+#
+# ⚠️ 重要:
+#   - アノテーションデータは競技動作の参考分析用途のみに使用してください
+#   - 医療診断・怪我の診断の代替ではありません
+#   - 個人情報を教師データに含めないでください
+#   - 教師データ利用許可とSNS掲載許可は別々に管理してください
+
+enabled: true
+
+# ジョブのPhase 10推定が完了したら自動でドラフトアノテーションを作成するか
+create_draft_after_phase_detection: true
+
+# 人間による確認（confirmed）を必須とする
+require_human_confirmation: true
+
+# デフォルトの教師データ利用許可（管理者が明示的に設定するまで unknown）
+default_consent_for_training_data: "unknown"
+
+# ── エクスポート設定 ─────────────────────────────────────────────────────────
+export:
+  # 教師データ利用許可が unknown のものをデフォルトで除外
+  default_exclude_unknown_consent: true
+  # 教師データ利用不可（denied）を除外（変更不可推奨）
+  default_exclude_denied: true
+  # ジョブIDを匿名化IDに変換（source_video_path のパスにジョブIDが含まれる場合も対処）
+  anonymize_job_id: false
+  # source_video_path をエクスポートに含めない
+  include_video_paths: false
+  # 個人メタデータ（氏名・学校名・連絡先）をエクスポートに含めない
+  include_personal_metadata: false
+  # エクスポート出力先（リポジトリルート相対）
+  output_dir: "exports/annotations"
+
+# ── ラベル設定 ───────────────────────────────────────────────────────────────
+labels:
+  # 必須イベントラベル（annotation confirmed 時に必須）
+  required_events:
+    - release
+    - block_contact
+  # 任意イベントラベル（将来拡張）
+  optional_events:
+    - cross_start
+    - withdrawal_max
+    - follow_through_start
+    - right_foot_contact
+    - left_foot_contact
+
+# ── 品質基準 ─────────────────────────────────────────────────────────────────
+quality:
+  # confidence がこの値未満の場合は reviewed=false にする
+  auto_accept_min_confidence: 0.70
+  # 動画品質がこの値以下の場合は annotation_status=draft のまま維持
+  min_video_quality_for_auto_confirm: "medium"
+
+# ── プライバシー ─────────────────────────────────────────────────────────────
+privacy:
+  # 以下のフラグがある場合はエクスポート前に警告する
+  warn_flags:
+    - contains_face
+    - contains_school_name
+    - contains_bib_number
+    - contains_voice
+    - contains_third_party
+    - needs_anonymization
+  # 以下のフラグがある場合は動画ファイルをエクスポートしない
+  no_video_export_flags:
+    - contains_face
+    - needs_anonymization

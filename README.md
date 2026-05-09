@@ -1619,3 +1619,113 @@ quality_thresholds:
 | `src/phase_summary_pdf.py` | フェーズ別 PDF に自動推定候補情報を追加 |
 | `tests/test_phase10.py` | Phase 10 ユニットテスト 36 件（新規） |
 
+---
+
+## Phase 11: 教師データ作成・アノテーション管理
+
+Phase 11 では、自動推定（Phase 10）と手動修正の差分を「教師データ候補」として記録・管理する
+アノテーションシステムを構築しました。
+
+> ⚠️ **重要な方針**
+> - アノテーションデータは競技動作の参考分析用途のみ
+> - 医療診断・怪我の診断・専門的競技指導の代替ではない
+> - **Phase 11 ではモデル訓練は行いません**（Phase 12 以降）
+> - アノテーションは「完全な正解ラベル」ではなく「人間による判断記録」
+
+### Phase 11 の方針
+
+- 自動推定と手動修正の差分を教師データ化する
+- SNS掲載許可と教師データ利用許可を**独立して**管理する
+- 個人情報（氏名・学校名・連絡先）をエクスポートに含めない
+- アノテーションを `draft` / `confirmed` で管理する
+- `consent_for_training_data = "denied"` は常にエクスポート除外
+
+### アノテーションのライフサイクル
+
+```
+[Worker Pipeline]
+  ↓ detect_phases (Phase 10)
+  ↓ create_annotation_draft (Phase 11)
+    → data/annotations/{ann_id}/annotation.json (status=draft)
+
+[Admin App]
+  → P11. アノテーション管理 タブで確認・編集
+  → 利用許可・プライバシーフラグ設定
+  → status を confirmed に変更
+
+[Export]
+  → エクスポートタブから JSONL / CSV 出力
+  → 安全フィルタが自動適用される
+```
+
+### データ構造
+
+保存先: `data/annotations/{annotation_id}/annotation.json`
+
+```json
+{
+  "annotation_id": "ann_YYYYMMDD_HHMMSS_xxxx",
+  "job_id": "20260508_070156_518a",
+  "annotation_status": "draft",
+  "consent_for_training_data": "unknown",
+  "sns_permission": "unknown",
+  "phase_labels": { ... },
+  "event_labels": { "release": {...}, "block_contact": {...} },
+  "privacy_flags": []
+}
+```
+
+### Phase 11 で追加・変更されたファイル
+
+| ファイル | 説明 |
+|---------|------|
+| `configs/annotation.yaml` | アノテーション設定（新規） |
+| `src/annotation/__init__.py` | モジュール初期化（新規） |
+| `src/annotation/manager.py` | アノテーション CRUD・自動生成・統計（新規） |
+| `src/annotation/exporter.py` | JSONL/CSV エクスポート（新規） |
+| `src/annotation/annotation_review_pdf.py` | 管理者確認 PDF 生成（新規） |
+| `worker.py` | `create_annotation_draft` ステップ追加 |
+| `admin_app.py` | 「📋 P11. アノテーション管理」タブ追加 |
+| `tests/test_phase11.py` | Phase 11 ユニットテスト 12 件（新規） |
+| `docs/annotation_design.md` | アノテーション設計ドキュメント（新規） |
+| `docs/training_data_policy.md` | 教師データポリシー（新規） |
+| `docs/annotation_export_format.md` | エクスポート形式仕様（新規） |
+
+### 管理画面での操作（Phase 11 UI）
+
+**ジョブ詳細 → 📋 P11. アノテーション管理 エキスパンダー**
+
+1. 「📋 アノテーションドラフト生成」ボタンで対象ジョブのアノテーションを作成
+2. ステータスを `reviewing` に変更してフェーズラベルを確認
+3. 教師データ利用許可・SNS掲載許可を設定
+4. 必要に応じてプライバシーフラグを設定
+5. ステータスを `confirmed` に変更
+
+**📋 アノテーション管理 タブ**
+
+- 一覧: 全アノテーションの一覧表示・フィルタリング
+- 統計: データセット統計（件数・品質・利用許可別）
+- エクスポート: 安全フィルタ付き JSONL/CSV エクスポート
+
+### エクスポートについて
+
+```python
+from src.annotation.exporter import export_annotations
+from pathlib import Path
+
+result = export_annotations(
+    output_dir=Path("exports/annotations"),
+    include_unknown_consent=False,  # unknown は除外（デフォルト）
+    dry_run=False,
+)
+print(f"エクスポート: {result['exported']} 件 / 除外: {result['excluded']} 件")
+```
+
+出力ファイル:
+- `phase_labels.jsonl` — フェーズラベル（1行1アノテーション）
+- `phase_labels.csv` — 同上（CSV形式）
+- `event_labels.jsonl` — イベントラベル（1行1イベント）
+- `export_log.json` — エクスポートログ
+
+詳細: [docs/annotation_export_format.md](docs/annotation_export_format.md)
+
