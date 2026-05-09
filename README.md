@@ -293,6 +293,405 @@ javelin-video-analysis/
 - **NumPy/SciPy**: 数値計算・信号処理
 - **Python**: 3.8+ 対応
 
+## 🌐 Tailscale Serveで外出先から管理画面にアクセスする
+
+同一Wi-Fi内だけでなく、外出先からも `admin_app.py` を安全に使いたい場合は、Tailscale Serve を使うと Tailnet 内限定で公開できます。
+
+### 1. PC側: Tailscaleをインストールしてログイン
+
+1. [https://tailscale.com/download](https://tailscale.com/download) から Windows 版 Tailscale をインストール
+2. Tailscale を起動し、管理者本人のアカウントでログイン
+3. 接続状態が `Connected` になっていることを確認
+
+### 2. スマホ側: Tailscaleアプリを入れて同じアカウントでログイン
+
+1. iOS は App Store、Android は Google Play から Tailscale アプリをインストール
+2. PCと同じ Tailscale アカウントでログイン
+3. VPN/接続を ON にして、Tailnet に参加済みであることを確認
+
+### 3. Streamlitを localhost:8501 で起動
+
+PowerShell 例:
+
+```bash
+streamlit run admin_app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+### 4. tailscale serve で localhost:8501 を公開
+
+別ターミナルで実行:
+
+```bash
+tailscale serve --bg http://127.0.0.1:8501
+```
+
+公開状態の確認:
+
+```bash
+tailscale serve status
+```
+
+### 5. スマホからアクセス
+
+スマホ側で Tailscale 接続を ON にした状態で、次のURLにアクセスします。
+
+- `https://PC名.tailnet名.ts.net`
+
+これで、外出先からでも管理者本人（同じ Tailnet にログイン済みユーザー）のみが管理画面を利用できます。
+
+### 6. うまく接続できない場合の確認項目
+
+- Streamlit が起動中か（`http://127.0.0.1:8501` をPC上で開けるか）
+- Tailscale が PC とスマホの両方で接続済みか
+- `tailscale serve status` で `http://127.0.0.1:8501` が割り当て済みか
+- Windows ファイアウォールで Tailscale / Streamlit 通信がブロックされていないか
+
+### 7. 注意事項
+
+- 一般公開ではなく、自分の Tailnet 内だけで利用する
+- 解析中は PC の電源を落とさない（停止すると外部アクセスできない）
+- 大容量動画はアップロード完了まで時間がかかる
+
+## 🗂️ ジョブ管理機能（admin_app.py）
+
+### 概要
+
+`admin_app.py` は Streamlit 製の管理画面です。解析ごとに専用の **ジョブフォルダ** を自動生成し、入力・出力・メタデータを整理します。将来的な FastAPI / S3 / LINE 連携を見据えた構成です。
+
+### ジョブフォルダ構造
+
+```
+jobs/
+└── YYYYMMDD_HHMMSS_xxxx/   ← ジョブID（例: 20260508_143022_a3f1）
+    ├── input/
+    │   └── original.mp4            ← アップロードされた動画
+    ├── output/
+    │   ├── analysis_*.mp4          ← 解析結果動画
+    │   └── *_report.json           ← 解析レポート（バリアントごと）
+    ├── report/
+    │   └── pose_landmarks.csv      ← 姿勢ランドマーク CSV データシート
+    └── job.json                    ← ジョブメタデータ
+```
+
+### 📊 姿勢ランドマーク CSV データシート
+
+解析完了後、`jobs/<job_id>/report/pose_landmarks.csv` が自動生成されます。
+
+#### 列構成
+
+| 列名 | 説明 |
+|---|---|
+| `frame` | フレーム番号（1始まり） |
+| `time_sec` | 経過時間（秒）= frame / FPS |
+| `<部位>_x` | 正規化 X 座標（0〜1、左端=0） |
+| `<部位>_y` | 正規化 Y 座標（0〜1、上端=0） |
+| `<部位>_z` | 深度 Z（MediaPipe 推定値） |
+| `<部位>_visibility` | 可視性スコア（0〜1） |
+
+#### 対象ランドマーク（13部位）
+
+`nose` / `left_shoulder` / `right_shoulder` / `left_elbow` / `right_elbow` / `left_wrist` / `right_wrist` / `left_hip` / `right_hip` / `left_knee` / `right_knee` / `left_ankle` / `right_ankle`
+
+#### 利用例
+
+```python
+import pandas as pd
+df = pd.read_csv("jobs/<job_id>/report/pose_landmarks.csv")
+print(df[["frame", "time_sec", "right_wrist_x", "right_wrist_y"]].head())
+```
+
+#### Streamlit 管理画面での確認
+
+ジョブ詳細画面の「出力ファイル」欄で `pose_landmarks.csv` の先頭5行をプレビュー表示し、全フレームのデータをダウンロードできます。
+
+#### report.json への追記
+
+`report.json` の `data_files` フィールドに CSV のパスが記録されます：
+
+```json
+{
+  "data_files": {
+    "pose_landmarks_csv": "report/pose_landmarks.csv"
+  }
+}
+```
+
+#### 注意事項
+
+- CSV 生成に失敗しても動画解析全体は失敗扱いにならず、警告ログのみ出力されます
+- `all_variants` モード（6 種同時出力）では、最初のバリアントの処理時に 1 度だけ生成されます（上書きなし）
+- ランドマークが検出されなかったフレームは `x / y / z / visibility` が空欄になります
+
+---
+
+### 🖼️ 代表フレーム画像の出力
+
+解析完了後、入力動画の代表フレームが `jobs/<job_id>/report/frames/` に自動保存されます。
+
+#### 保存位置と命名規則
+
+| ファイル名 | 説明 |
+|---|---|
+| `frame_0000_start.jpg` | 動画の先頭フレーム（0%） |
+| `frame_XXXX_25pct.jpg` | 全体の25%位置のフレーム |
+| `frame_XXXX_50pct.jpg` | 全体の50%位置のフレーム（中央付近） |
+| `frame_XXXX_75pct.jpg` | 全体の75%位置のフレーム |
+| `frame_XXXX_90pct.jpg` | 全体の90%位置のフレーム（リリース後） |
+
+`XXXX` は実際のフレーム番号（ゼロ埋め4桁）です。
+
+#### report.json への追記
+
+```json
+{
+  "visual_files": {
+    "representative_frames": [
+      "report/frames/frame_0000_start.jpg",
+      "report/frames/frame_0062_25pct.jpg",
+      "report/frames/frame_0124_50pct.jpg",
+      "report/frames/frame_0186_75pct.jpg",
+      "report/frames/frame_0224_90pct.jpg"
+    ]
+  }
+}
+```
+
+#### Streamlit 管理画面での確認
+
+ジョブ詳細画面の「出力ファイル」欄が4セクションに整理されています：
+
+- **🖼️ 代表フレーム画像** — 5枚の静止画をグリッド表示・個別ダウンロード
+- **📈 解析グラフ** — 3枚のグラフ画像をグリッド表示・個別ダウンロード
+- **📊 CSVデータシート** — `pose_landmarks.csv` の先頭5行プレビュー・全データDL
+- **🎬 解析動画** — 各バリアント動画の再生・ダウンロード
+
+#### 注意事項
+
+- フレーム切り出しに失敗してもジョブ全体は `failed` にならず、警告ログのみ出力されます
+- `all_variants` 等で複数回呼ばれる場合、`frames/` ディレクトリが既に存在する場合はスキップされます
+
+---
+
+### 📈 グラフ画像の自動生成
+
+解析完了後、`pose_landmarks.csv` を元に3種類のグラフ画像が `jobs/<job_id>/report/graphs/` に自動保存されます。
+
+#### 生成されるグラフ
+
+| ファイル名 | 内容 |
+|---|---|
+| `right_wrist_height.png` | 右手首の高さ変化（時系列）|
+| `right_arm_trajectory.png` | 右肩・右肘・右手首の2D軌跡 |
+| `torso_center_trajectory.png` | 肩中心・腰中心の移動軌跡（時系列＋2D） |
+
+#### グラフの座標系
+
+MediaPipe の画像座標は y=0 が画面上部・y=1 が下部のため、高さ表示では `1 - y` に変換しています（上方向への変化が上向きのグラフになります）。
+
+#### report.json への追記
+
+```json
+{
+  "visual_files": {
+    "representative_frames": ["report/frames/frame_0000_start.jpg"],
+    "graphs": [
+      "report/graphs/right_wrist_height.png",
+      "report/graphs/right_arm_trajectory.png",
+      "report/graphs/torso_center_trajectory.png"
+    ]
+  }
+}
+```
+
+#### Streamlit 管理画面での確認
+
+ジョブ詳細 → 出力ファイル の **📈 解析グラフ** セクションで3枚を横並び表示・個別ダウンロードできます。
+
+#### 注意事項
+
+- CSV が存在しない場合・必要な列が欠けている場合は、そのグラフだけスキップし警告ログを出力します
+- `all_variants` 等で複数回呼ばれる場合、`graphs/` ディレクトリが既に存在する場合はスキップされます
+- グラフ生成に失敗しても動画解析・CSV・代表フレームの出力には影響しません
+- 生成モジュール: `src/graph_generator.py`（`generate_graphs_for_job(job_dir)` 関数）
+
+---
+
+### 📄 PDFレポートの自動生成
+
+解析完了後、代表フレーム画像・グラフ画像・解析メトリクスをまとめたA4 PDF レポートが `jobs/<job_id>/report/report.pdf` に自動保存されます。
+
+#### PDF構成
+
+| ページ | 内容 |
+|---|---|
+| 1ページ目（表紙） | タイトル・Job ID・日時・身長・モード・入力ファイル名 |
+| 2ページ目 | 動画情報・解析メトリクス・出力ファイルサマリ |
+| 3ページ目〜 | 代表フレーム画像（2列×2行、最大4枚/ページ） |
+| 次ページ〜 | グラフ画像（1〜2枚/ページ） |
+| 最終ページ | 免責事項（Disclaimer） |
+
+#### report.json への追記
+
+```json
+{
+  "report_files": {
+    "pdf": "report/report.pdf"
+  }
+}
+```
+
+#### Streamlit 管理画面での操作
+
+- ジョブ詳細画面の **📄 PDFレポート** セクションから `report.pdf` をダウンロードできます
+- **🔄 PDF を再生成** ボタンで任意のタイミングで再生成できます（データ更新後に再実行する場合など）
+
+#### 注意事項
+
+- `frames/` や `graphs/` が存在しない場合でも "No representative frames found." 等の文言を挿入して PDF 生成を継続します
+- PDF 生成に失敗しても動画解析・CSV・グラフ出力には影響しません
+- Windows 環境のみで動作確認済み（ReportLab 使用、日本語フォント未使用・英語中心）
+- 生成モジュール: `src/pdf_report_generator.py`（`generate_pdf_report_for_job(job_dir)` 関数）
+- 依存ライブラリ: `reportlab>=4.0.0`（`requirements.txt` 記載）
+
+---
+
+### 🗂️ Streamlit 管理画面の成果物分類
+
+ジョブ詳細画面は成果物の用途に応じて **A〜F の 6 セクション** に分かれています。
+
+| セクション | 内容 |
+|---|---|
+| 🗂️ A. Job Summary | Job ID・Status・日時・身長・モード・入力ファイル名 |
+| 🆓 B. Free Preview Outputs | 解析動画（骨格/ヒートマップ/HUD等）・代表フレーム画像 |
+| 📊 C. Data Sheet Outputs | pose_landmarks.csv・解析グラフ画像 |
+| 📄 D. PDF Report | report.pdf ダウンロード・再生成ボタン・生成日時 |
+| 🔒 E. Admin/Internal Files | job.json・report.json・その他管理者専用ファイル |
+| 📦 F. 納品用ZIPパッケージ | 3種類の ZIP 生成・ダウンロード |
+
+#### ファイル分類ロジック
+
+`admin_app.py` の `_classify_job_files(job_dir, output_files)` 関数が出力ファイルをカテゴリ別に分類します。
+
+- **preview_mp4s**: ファイル名に `skeleton / trail / heatmap / hud / stickman / vectors / gaming` を含む MP4
+- **frame_files**: パスに `frames/` を含む画像ファイル
+- **graph_files**: パスに `graphs/` を含む PNG 画像
+- **csv_files**: `.csv` ファイル
+- **pdf_path**: `report.pdf` という名前の PDF
+- **admin_files**: `.json` ファイル
+- **other_files**: 上記に該当しないファイル
+
+---
+
+### 📦 納品用ZIPパッケージ生成
+
+各ジョブの成果物を3種類の ZIP にまとめて `jobs/<job_id>/deliverables/` に保存できます。
+
+#### 生成される ZIP
+
+| ファイル名 | 含まれるもの |
+|---|---|
+| `free_preview.zip` | 解析動画（プレビュー用）+ 代表フレーム先頭3枚 |
+| `data_sheet_package.zip` | pose_landmarks.csv + グラフ画像 + 全代表フレーム画像 |
+| `full_report_package.zip` | report.pdf + CSV + グラフ + フレーム + 全出力動画 |
+
+#### 使い方（コード）
+
+```python
+from pathlib import Path
+from src.deliverable_packager import create_deliverable_packages_for_job
+
+zips = create_deliverable_packages_for_job(Path("jobs/20260508_181930_c4bd"))
+# -> {
+#      "free_preview":        Path(".../deliverables/free_preview.zip"),
+#      "data_sheet_package":  Path(".../deliverables/data_sheet_package.zip"),
+#      "full_report_package": Path(".../deliverables/full_report_package.zip"),
+#    }
+```
+
+#### report.json への追記
+
+```json
+{
+  "deliverables": {
+    "free_preview_zip":          "deliverables/free_preview.zip",
+    "data_sheet_package_zip":    "deliverables/data_sheet_package.zip",
+    "full_report_package_zip":   "deliverables/full_report_package.zip"
+  }
+}
+```
+
+#### Streamlit 管理画面での操作
+
+- **🔒 E. 管理者内部用** → report.json で `deliverables` フィールドを確認
+- **📦 F. 納品用ZIPパッケージ** → 「🗜️ ZIPを全て生成」ボタンで一括生成
+- 生成済みの各 ZIP はサイズ・生成日時付きで表示され、ダウンロードボタンから取得可能
+
+#### 注意事項
+
+- ファイルが存在しない場合はスキップし、ZIP 生成全体は止まりません
+- 生成モジュール: `src/deliverable_packager.py`（`create_deliverable_packages_for_job(job_dir)` 関数）
+- ZIP はデフォルトで DEFLATE 圧縮（動画はすでに圧縮済みのため圧縮率は低いことがあります）
+
+---
+
+### job.json のフィールド
+
+| フィールド | 内容 |
+|---|---|
+| `job_id` | `YYYYMMDD_HHMMSS_xxxx` 形式の一意なID |
+| `status` | `created` / `running` / `completed` / `failed` |
+| `created_at` | ジョブ作成日時（ISO 8601） |
+| `updated_at` | 最終更新日時（ISO 8601） |
+| `height_m` | 被写体の身長（メートル、任意） |
+| `mode` | 解析モード |
+| `input_file` | 入力動画のフルパス |
+| `output_files` | 出力ファイルのパスリスト |
+| `error` | エラーメッセージ（失敗時のみ） |
+
+### 管理画面の起動
+
+```bash
+streamlit run admin_app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+ブラウザで `http://localhost:8501` を開く。
+
+### 画面構成
+
+- **▶ 新規ジョブ**: 動画アップロード → 解析モード選択 → 解析実行
+- **📋 ジョブ履歴**: 過去ジョブの一覧表示・動画・ファイルの確認
+
+### 解析モード一覧
+
+| モード | 説明 |
+|---|---|
+| `basic` | 骨格表示のみ |
+| `heatmap` | 速度ヒートマップ |
+| `vectors` | 速度・加速度ベクトル |
+| `hud` | ゲーム風 HUD |
+| `all_variants` | 上記4種類を同時出力 |
+
+### コマンドライン連携（新規オプション）
+
+`run.py` に以下のオプションを追加しました。既存の動作は変わりません。
+
+```bash
+# --input: --video の別名（admin_app.py がジョブパスを渡す際に使用）
+python run.py --input jobs/20260508_143022_a3f1/input/original.mp4 \
+              --output-dir jobs/20260508_143022_a3f1/output
+
+# 従来の --video も引き続き使用可能
+python run.py --video input/my_video.mp4
+```
+
+### jobs/ ディレクトリの除外設定
+
+`.gitignore` に以下を追加することを推奨します。
+
+```
+jobs/
+```
+
 ## 🤝 コントリビューション
 
 プラグイン方式により新しい可視化機能を簡単に追加できます：

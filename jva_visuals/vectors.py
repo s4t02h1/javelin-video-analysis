@@ -123,7 +123,7 @@ class VectorPass(VisualPassBase):
         
         # 線種設定
         line_type = cv2.LINE_AA
-        thickness = 2
+        thickness = 1
         
         if vector_type == "acceleration":
             # 加速度は点線で描画
@@ -184,8 +184,8 @@ class VectorPass(VisualPassBase):
                         thickness: int):
         """矢印の頭を描画"""
         # 矢印の長さと角度
-        arrow_length = max(8, thickness * 4)
-        arrow_angle = 0.5  # radians
+        arrow_length = max(5, thickness * 3)
+        arrow_angle = 0.4  # radians
         
         # ベクトル方向
         direction = end - start

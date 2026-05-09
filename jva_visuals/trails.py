@@ -27,6 +27,12 @@ class WristTrailPass(VisualPassBase):
         self.color = tuple(config.get("color", (255, 255, 255)))  # BGR
         self.fade_alpha = config.get("fade_alpha", True)
         
+        # リリース後フェードアウト設定
+        self.release_threshold = config.get("release_threshold", 20.0)  # m/s
+        self.fade_frames = config.get("fade_frames", 8)  # リリース後何フレームで消えるか
+        self._released = False
+        self._prev_wrist: Optional[Tuple[int, int]] = None
+        
         # 軌跡バッファ
         self.trail_points: List[Tuple[int, int]] = []
     
@@ -37,14 +43,30 @@ class WristTrailPass(VisualPassBase):
         
         # 右手首の位置を取得
         right_wrist = landmarks.right_wrist
-        if right_wrist is not None:
-            # 整数座標に変換
+        h, w = landmarks.frame_shape
+
+        if right_wrist is not None and not self._released:
             wrist_pos = (int(right_wrist[0]), int(right_wrist[1]))
             
-            # フレーム境界チェック
-            h, w = landmarks.frame_shape
             if 0 <= wrist_pos[0] < w and 0 <= wrist_pos[1] < h:
-                self.trail_points.append(wrist_pos)
+                # リリース検知（速度が閾値を超えたら）
+                if (self._prev_wrist is not None and
+                        landmarks.px2m < 0.5):  # 正しくキャリブレーションされている場合のみ
+                    dx = wrist_pos[0] - self._prev_wrist[0]
+                    dy = wrist_pos[1] - self._prev_wrist[1]
+                    speed_ms = np.sqrt(dx*dx + dy*dy) * landmarks.px2m * landmarks.fps
+                    if speed_ms > self.release_threshold:
+                        self._released = True
+                
+                if not self._released:
+                    self.trail_points.append(wrist_pos)
+                self._prev_wrist = wrist_pos
+        
+        # リリース後: 古い点を急速に削除してフェードアウト
+        if self._released and self.trail_points:
+            # 1フレームに少なくとも max(8, 全体の1/8) 点を削除 → 約 8フレームで消える
+            remove_n = max(8, len(self.trail_points) // self.fade_frames)
+            self.trail_points = self.trail_points[remove_n:]
         
         # バッファサイズ制限
         if len(self.trail_points) > self.max_trail_length:

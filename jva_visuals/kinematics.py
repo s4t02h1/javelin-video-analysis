@@ -12,33 +12,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# カメラ動き補正に使う体幹の代表関節 (MediaPipe インデックス)
+# 左肩=11, 右肩=12, 左腰=23, 右腰=24
+_TORSO_JOINTS = [11, 12, 23, 24]
+
 
 def finite_diff(series: np.ndarray, dt: float) -> np.ndarray:
     """
     有限差分による微分計算
-    
+
     Args:
         series: 時系列データ (N,) または (N, D)
-        dt: 時間間隔
-    
+        dt: 時間間隔（秒）。0 より大きい値でないと割り算しない。
+
     Returns:
-        np.ndarray: 微分値（最初の要素は0）
+        np.ndarray: 微分値（単位: series単位 / 秒）。最初の要素は0。
     """
     if len(series) < 2:
         return np.zeros_like(series)
-    
-    # 基本は前進差分（先頭は0）。
-    diff = np.zeros_like(series)
+
+    scale = 1.0 / dt if dt > 0 else 1.0
+    diff = np.zeros_like(series, dtype=np.float64)
     if series.ndim == 1:
-        raw = np.diff(series)
+        raw = np.diff(series.astype(np.float64)) * scale
         diff[1:] = raw
-        # ヒューリスティック: 初期だけ値が異なり、その後が一定に落ち着く場合は2番目を0に補正
-        if len(diff) >= 4 and diff[1] != diff[2] and diff[2] == diff[3]:
-            diff[1] = 0.0
     else:
-        raw = np.diff(series, axis=0)
+        raw = np.diff(series.astype(np.float64), axis=0) * scale
         diff[1:] = raw
-    
+
     return diff
 
 
@@ -179,8 +180,17 @@ class KinematicsBuffer:
             # 速度計算
             joint_vel = finite_diff(smoothed_pos, dt_mean)
             velocities[:, joint_idx, :] = joint_vel
-        
-        # 速度の大きさ
+
+        # ── カメラ動き補正 ───────────────────────────────────────────────────
+        # パンニングカメラでは全ランドマークが一斉にシフトする。
+        # 体幹関節の中央速度をカメラ動き推定量として全関節から差し引く。
+        valid_torso = [j for j in _TORSO_JOINTS if j < n_joints]
+        if valid_torso:
+            # (n_frames, n_torso, 2) → フレームごとの中央値 (n_frames, 1, 2)
+            camera_vel = np.median(velocities[:, valid_torso, :], axis=1, keepdims=True)
+            velocities = velocities - camera_vel
+
+        # 速度の大きさ（補正後）
         speeds = np.linalg.norm(velocities, axis=2)  # (frames, joints)
         
         # 加速度計算

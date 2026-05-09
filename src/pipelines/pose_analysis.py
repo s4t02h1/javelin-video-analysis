@@ -5,14 +5,14 @@ import numpy as np
 try:
     import mediapipe as mp
     MEDIAPIPE_AVAILABLE = True
-    print(f"✅ MediaPipe loaded successfully! Version: {mp.__version__}")
+    print(f"MediaPipe loaded successfully. Version: {mp.__version__}")
 except Exception as first_err:
     try:
         from src.utils.mediapipe_fix import fix_mediapipe_dll_issues
         fix_mediapipe_dll_issues()
         import mediapipe as mp
         MEDIAPIPE_AVAILABLE = True
-        print(f"✅ MediaPipe loaded successfully after DLL fix! Version: {mp.__version__}")
+        print(f"MediaPipe loaded successfully after DLL fix. Version: {mp.__version__}")
     except Exception as e:
         print(f"MediaPipe not available ({first_err}), using mock implementation")
         from src.utils.mock_mediapipe import mp
@@ -165,8 +165,19 @@ class PoseAnalyzer:
         res = self.pose.process(rgb)
 
         points = [None] * 33
+        raw_landmarks = None
         if res.pose_landmarks:
             points = self._landmarks_to_points(frame.shape, res.pose_landmarks)
+            # 生ランドマーク（正規化座標 0-1, z, visibility）を保存
+            raw_landmarks = [
+                {
+                    "x": float(lm.x),
+                    "y": float(lm.y),
+                    "z": float(lm.z),
+                    "visibility": float(lm.visibility),
+                }
+                for lm in res.pose_landmarks.landmark
+            ]
 
         self._compute_velocities(points, fps)
 
@@ -180,7 +191,7 @@ class PoseAnalyzer:
         com = self._compute_com(points)
         self.prev_points = points
 
-        return {"points": points, "com": com, "velocities": self.velocities}
+        return {"points": points, "com": com, "velocities": self.velocities, "raw_landmarks": raw_landmarks}
 
     # 可視化
     def render_basic(self, frame, state):

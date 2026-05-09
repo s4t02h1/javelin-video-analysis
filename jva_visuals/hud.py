@@ -7,6 +7,7 @@ hud.py - HUD（ヘッドアップディスプレイ）モジュール
 import numpy as np
 import cv2
 from typing import Dict, Any, List, Tuple, Optional
+from collections import deque
 import logging
 import time
 
@@ -49,6 +50,9 @@ class HUDPass(VisualPassBase):
         # 運動学バッファ
         self.kinematics = KinematicsBuffer()
         
+        # リリース検知: 連続フレーム数でスパイク除去
+        self._high_speed_frames = 0
+        
         # イベント管理
         self.event_history = []
         self.last_release_time = 0
@@ -58,6 +62,11 @@ class HUDPass(VisualPassBase):
         # メトリクス履歴
         self.max_speed_recorded = 0.0
         self.frame_count = 0
+        # 5フレーム rolling average でスパイク除去
+        self._spd_buf: deque = deque([0.0] * 5, maxlen=5)
+        
+        # キャリブレーション済み px2m を保持（足首が映らないフレームでも使い続ける）
+        self._stable_px2m: Optional[float] = None
     
     def apply(self, frame: np.ndarray, landmarks: AdaptedLandmarks) -> np.ndarray:
         """HUDを描画"""
@@ -68,6 +77,9 @@ class HUDPass(VisualPassBase):
         timestamp = self.frame_count / landmarks.fps
         positions = landmarks.points[:, :2]
         self.kinematics.add_frame(positions, timestamp)
+        # キャリブレーション済み px2m をキャッシュ
+        if landmarks.px2m < 0.5:
+            self._stable_px2m = landmarks.px2m
         
         # 現在のメトリクス計算
         current_metrics = self._calculate_metrics(landmarks)
@@ -94,14 +106,26 @@ class HUDPass(VisualPassBase):
         """現在のメトリクスを計算"""
         kinematics_data = self.kinematics.get_current_kinematics()
         
+        # キャリブレーション済み px2m を使用
+        px2m = self._stable_px2m if self._stable_px2m is not None else landmarks.px2m
+        is_calibrated = px2m < 0.5
+        
         # 右手首の速度（リリース速度）
         right_wrist_speed = 0.0
-        if landmarks.right_wrist is not None and len(kinematics_data['speed']) > 16:
-            right_wrist_speed = kinematics_data['speed'][16] * landmarks.px2m
-            self.max_speed_recorded = max(self.max_speed_recorded, right_wrist_speed)
+        # 視認性チェック：wristが見えていてかつキャリブレーション済みの場合のみ計算
+        if (is_calibrated
+                and landmarks.points[16, 2] > 0.5  # 右手首が検出されていること
+                and landmarks.right_wrist is not None
+                and len(kinematics_data['speed']) > 16):
+            raw_speed = kinematics_data['speed'][16] * px2m
+            # 人間として有り得ない速度（35 m/s = 126 km/h 超）はスパイクとして除外
+            if raw_speed < 35.0:
+                self._spd_buf.append(raw_speed)
+                right_wrist_speed = float(np.mean(self._spd_buf))
+                self.max_speed_recorded = max(self.max_speed_recorded, right_wrist_speed)
         
         # 腕の運動学データ
-        arm_data = calculate_arm_vectors(landmarks.points, kinematics_data['velocity'], landmarks.px2m)
+        arm_data = calculate_arm_vectors(landmarks.points, kinematics_data['velocity'], px2m)
         
         # 肩の分離度（左右肩の距離）
         shoulder_separation = 0.0
@@ -132,15 +156,22 @@ class HUDPass(VisualPassBase):
     
     def _detect_events(self, metrics: Dict[str, Any], timestamp: float):
         """イベントを検知"""
-        # リリース検知（速度閾値超過）
-        if (metrics['right_wrist_speed'] > self.release_speed_threshold and 
-            timestamp - self.last_release_time > 1.0):  # 1秒以上間隔
+        # 連続高速フレームカウント（スパイク除去）
+        if metrics['right_wrist_speed'] > self.release_speed_threshold:
+            self._high_speed_frames += 1
+        else:
+            self._high_speed_frames = 0
+
+        # リリース検知: 2フレーム以上継続 + キャリブレーション済み + 1秒間隔
+        if (self._high_speed_frames >= 2 and
+                self._stable_px2m is not None and
+                timestamp - self.last_release_time > 1.0):
             
             self.event_history.append({
                 'type': 'release',
                 'timestamp': timestamp,
                 'speed': metrics['right_wrist_speed'],
-                'message': f"RELEASE! {metrics['right_wrist_speed']:.1f} m/s"
+                'message': f"RELEASE! {metrics['right_wrist_speed'] * 3.6:.1f} km/h"
             })
             
             self.last_release_time = timestamp
@@ -183,10 +214,12 @@ class HUDPass(VisualPassBase):
         y_offset = panel_y + 25
         line_spacing = 20
         
+        speed_kmh     = metrics['right_wrist_speed'] * 3.6
+        max_speed_kmh = metrics['max_speed_recorded'] * 3.6
         metrics_text = [
-            f"Release Speed: {metrics['right_wrist_speed']:.1f} m/s",
-            f"Max Speed: {metrics['max_speed_recorded']:.1f} m/s", 
-            f"Arm Angular Vel: {np.degrees(metrics['arm_angular_velocity']):.1f} deg/s",
+            f"Speed:     {speed_kmh:.1f} km/h",
+            f"Max Speed: {max_speed_kmh:.1f} km/h",
+            f"Arm AngVel: {np.degrees(metrics['arm_angular_velocity']):.1f} °/s",
             f"Body Angle: {metrics['body_angle']:.1f}°",
             f"FPS: {metrics['fps']:.1f}"
         ]
@@ -216,8 +249,8 @@ class HUDPass(VisualPassBase):
         gauge_radius = 50
         
         self._draw_circular_gauge(frame, gauge_center, gauge_radius,
-                                metrics['right_wrist_speed'], 0, 30,
-                                "Speed", "m/s", self.accent_color)
+                                metrics['right_wrist_speed'] * 3.6, 0, 108,
+                                "Speed", "km/h", self.accent_color)
         
         # 角速度ゲージ（簡易版）
         angular_vel_deg = np.degrees(metrics['arm_angular_velocity'])
@@ -225,7 +258,7 @@ class HUDPass(VisualPassBase):
         
         self._draw_circular_gauge(frame, gauge_center2, 40,
                                 angular_vel_deg, 0, 360,
-                                "Angular", "deg/s", (255, 128, 0))
+                                "Angular", "\u00b0/s", (255, 128, 0))
         
         return frame
     

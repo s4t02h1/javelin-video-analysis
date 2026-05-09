@@ -20,6 +20,10 @@ import cv2  # type: ignore
 import numpy as np  # type: ignore
 
 from src.pipelines.pose_analysis import PoseAnalyzer
+from src.data_exporter import export_pose_landmarks_csv
+from src.frame_extractor import extract_representative_frames
+from src.graph_generator import generate_graphs_for_job
+from src.pdf_report_generator import generate_pdf_report_for_job
 
 try:
     from jva_visuals.registry import VisualPipeline, VisualPassRegistry
@@ -64,6 +68,10 @@ def override_config_with_args(config: Dict[str, Any], args: argparse.Namespace) 
         visuals["heatmap"] = True
     if args.hud:
         visuals["hud"] = True
+    if args.stickman:
+        visuals["stickman"] = True
+    if args.analysis:
+        visuals["analysis"] = True
     if args.wrist_trail:
         visuals["wrist_trail"] = True
     if args.glow_trail:
@@ -114,86 +122,554 @@ def print_blender_commands(video_path: str, landmarks_path: str, output_path: st
     print("\n" + "\n".join(commands) + "\n")
 
 
+def _write_handout_html(output_dir: Path, base_name: str,
+                        variants_results: list, config: Dict[str, Any],
+                        input_path: str) -> None:
+    """被験者向け説明書（A4 PDF）を出力する。"""
+    import datetime, html as _html, io
+    from xhtml2pdf import pisa
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+
+    # ReportLab 内蔵 CJK CID フォントを使用（外部フォントファイル不要・日本語対応）
+    _FONT_NORMAL = "HeiseiMin-W3"    # 明朝体（本文）
+    _FONT_BOLD   = "HeiseiKakuGo-W5" # ゴシック体（見出し・太字）
+    for _fn in (_FONT_NORMAL, _FONT_BOLD):
+        if _fn not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(UnicodeCIDFont(_fn))
+    _font_face_css = ""  # CID フォントは @font-face 不要（pdfmetrics 登録済み）
+
+    # 動画情報
+    cap      = cv2.VideoCapture(input_path)
+    fps_v    = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frames_v = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    w_v      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h_v      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    dur_s    = round(frames_v / fps_v, 1) if fps_v > 0 else 0
+    cap.release()
+
+    height_m  = config.get("height_m")
+    generated = datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M")
+    date_str  = datetime.datetime.now().strftime("%Y年%m月%d日")
+
+    # 各バリアントの詳細説明
+    VARIANT_DETAIL = {
+        "骨格": {
+            "subtitle": "骨格トレース＋手首軌跡",
+            "desc": (
+                "カメラで捉えた映像に、AIが推定した身体の骨格ライン（関節と骨の接続）を"
+                "重ね合わせて表示しています。右手首の軌跡が細い線で記録されており、"
+                "投擲フォームの全体的な流れを確認するのに適しています。"
+            ),
+            "points": [
+                "青色の線と点が骨格ランドマーク",
+                "手首の軌跡でリリース動作のパスを確認できる",
+                "フォームの左右対称性・重心移動の把握に最適",
+            ],
+        },
+        "ヒートマップ": {
+            "subtitle": "速度ヒートマップ",
+            "desc": (
+                "各関節の動く速さを色で表現しています。"
+                "赤・黄色に近いほど速く動いており、青に近いほどゆっくり動いています。"
+                "どの関節がどのタイミングで加速しているかが視覚的に把握できます。"
+            ),
+            "points": [
+                "赤＝高速、青＝低速（JETカラーマップ）",
+                "リリース局面での手首・肘の加速を色で確認",
+                "体の各部位の使い方の偏りを発見できる",
+            ],
+        },
+        "ベクトル": {
+            "subtitle": "速度・加速度ベクトル",
+            "desc": (
+                "各関節に矢印を重ねて、動きの方向と大きさを表現します。"
+                "緑の矢印が速度（今どの向きに動いているか）、"
+                "赤の矢印が加速度（速度がどう変化しているか）を示します。"
+            ),
+            "points": [
+                "緑の矢印：速度ベクトル（向き＝移動方向、長さ＝速さ）",
+                "赤の矢印：加速度ベクトル（同方向なら加速、逆なら減速）",
+                "肩・肘・手首・腰の8関節を対象",
+            ],
+        },
+        "スティックマン": {
+            "subtitle": "スティックマン（黒背景シルエット）",
+            "desc": (
+                "背景を黒にして、身体をシンプルな線と点だけで表現したモードです。"
+                "余計な情報を排除することで、フォームの輪郭・角度・タイミングが"
+                "クリアに浮かび上がります。コーチとの振り返りに特に有効です。"
+            ),
+            "points": [
+                "黒背景で骨格ラインが際立つ",
+                "手首軌跡をリリース後に徐々にフェードアウト",
+                "フォーム比較・コーチング資料として使いやすい",
+            ],
+        },
+        "HUD": {
+            "subtitle": "ゲーム風 HUD（数値ダッシュボード）",
+            "desc": (
+                "ゲームのヘッドアップディスプレイのように、リアルタイムの数値を"
+                "画面上に重ねて表示します。右手首の現在速度・最大速度・円形ゲージで"
+                "リリース瞬間の強さを定量的に把握できます。"
+            ),
+            "points": [
+                "Speed：右手首のその瞬間の速度（km/h）",
+                "Max Speed：動画全体での最大速度",
+                "RELEASE フラッシュ：投擲リリース瞬間を自動検出",
+            ],
+        },
+        "コーチング解析": {
+            "subtitle": "コーチング解析（5種統合オーバーレイ）",
+            "desc": (
+                "最も情報量の多いモードです。以下の5つの解析が1本の動画に重ね合わされています。"
+                "投擲のフェーズ・関節角度・リリース情報・軌道予測・運動連鎖を一覧できます。"
+            ),
+            "points": [
+                "フェーズバー（下部）：アプローチ→デリバリー→リリース→フォロースルー",
+                "関節角度アーク：肘・肩・股関節のリアルタイム角度",
+                "リリーススナップショット：検出後3秒間、速度・角度・時刻を表示",
+                "軌道予測アーク：リリース後の放物線シミュレーション",
+                "Kinetic Chain（右側）：足首→膝→腰→肩→肘→手首の速度バー",
+            ],
+        },
+    }
+
+    # レポートファイルから速度情報を読み込む（存在すれば）
+    max_kmh_str = "—"
+    release_kmh_str = "—"
+    detection_str = "—"
+    for vr in variants_results:
+        rp = output_dir / vr["filename"].replace(".mp4", "_report.json")
+        if rp.exists():
+            try:
+                with open(rp, encoding="utf-8") as f:
+                    rdata = json.load(f)
+                a = rdata.get("analysis", {})
+                if a.get("wrist_max_speed_kmh"):
+                    max_kmh_str = f"{a['wrist_max_speed_kmh']:.1f} km/h"
+                if a.get("release_speed_kmh"):
+                    release_kmh_str = f"{a['release_speed_kmh']:.1f} km/h"
+                if a.get("pose_detection_rate") is not None:
+                    detection_str = f"{a['pose_detection_rate']*100:.0f}%"
+            except Exception:
+                pass
+            break
+
+    height_str = f"{height_m} m" if height_m else "未設定"
+
+    # カードHTML（テーブルレイアウト）
+    cards_html = ""
+    for i, vr in enumerate(variants_results, 1):
+        name  = vr["name"]
+        fname = vr["filename"]
+        ok    = vr["success"]
+        d     = VARIANT_DETAIL.get(name, {})
+        sub   = d.get("subtitle", name)
+        desc  = d.get("desc", "")
+        pts   = d.get("points", [])
+        badge_cls = "badge-ok" if ok else "badge-ng"
+        badge_txt = "出力済み" if ok else "処理失敗"
+        pts_html  = "".join(f"<li>{_html.escape(p)}</li>" for p in pts)
+        cards_html += f"""
+        <div class="card">
+          <table class="card-head-table"><tr>
+            <td class="card-num">{i}</td>
+            <td class="card-title-cell">
+              <span class="card-title-main">{_html.escape(name)}</span><br/>
+              <span class="card-subtitle">{_html.escape(sub)}</span>
+            </td>
+            <td class="card-badge-cell"><span class="{badge_cls}">{badge_txt}</span></td>
+          </tr></table>
+          <p class="card-desc">{_html.escape(desc)}</p>
+          <ul class="card-points">{pts_html}</ul>
+          <p class="card-fname">{_html.escape(fname)}</p>
+        </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Javelin Video Analysis 解析動画説明書</title>
+<style>
+  @page {{ size: A4; margin: 15mm 12mm 12mm 12mm; }}
+  body {{ font-family: {_FONT_NORMAL}; font-size: 10.5pt; color: #1a1a1a; word-break: break-all; -pdf-word-wrap: CJK; }}
+  .page-header {{ border-bottom: 3pt solid #1a56db; padding-bottom: 5pt; margin-bottom: 8pt; }}
+  .header-inner {{ width: 100%; }}
+  .header-title {{ font-family: {_FONT_BOLD}; font-size: 16pt; color: #1a56db; }}
+  .header-meta {{ font-size: 8pt; color: #555; text-align: right; }}
+  .summary-table {{ width: 100%; border-collapse: collapse; margin-bottom: 8pt; }}
+  .summary-table td {{ border: 1pt solid #d1d5db; padding: 5pt 4pt; background-color: #f9fafb; text-align: center; width: 20%; word-break: normal; }}
+  .stat-val {{ font-family: {_FONT_BOLD}; font-size: 12pt; color: #1a56db; }}
+  .stat-lbl {{ font-size: 7.5pt; color: #666; }}
+  .intro {{ font-size: 9pt; color: #6b7280; margin-bottom: 8pt; word-break: break-all; }}
+  .card {{ border: 1pt solid #e5e7eb; padding: 7pt 9pt; margin-bottom: 6pt; }}
+  .card-head-table {{ width: 100%; border-collapse: collapse; margin-bottom: 3pt; }}
+  .card-num {{ font-family: {_FONT_BOLD}; font-size: 9pt; color: #fff; background-color: #1a56db; text-align: center; width: 18pt; padding: 2pt; }}
+  .card-title-cell {{ padding-left: 5pt; }}
+  .card-title-main {{ font-family: {_FONT_BOLD}; font-size: 11pt; word-break: break-all; }}
+  .card-subtitle {{ font-size: 8pt; color: #6b7280; }}
+  .card-badge-cell {{ text-align: right; width: 50pt; }}
+  .badge-ok {{ font-size: 7.5pt; color: #166534; background-color: #dcfce7; padding: 2pt 6pt; }}
+  .badge-ng {{ font-size: 7.5pt; color: #991b1b; background-color: #fee2e2; padding: 2pt 6pt; }}
+  .card-desc {{ font-size: 9pt; color: #374151; margin-bottom: 3pt; line-height: 1.5; word-break: break-all; }}
+  .card-points {{ font-size: 8.5pt; color: #4b5563; padding-left: 12pt; line-height: 1.6; margin-bottom: 3pt; word-break: break-all; }}
+  .card-fname {{ font-size: 7.5pt; color: #9ca3af; word-break: break-all; }}
+  .page-footer {{ margin-top: 6pt; font-size: 7.5pt; color: #9ca3af; text-align: center; border-top: 1pt solid #e5e7eb; padding-top: 3pt; }}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <table class="header-inner"><tr>
+    <td><span class="header-title">解析動画 説明書</span></td>
+    <td class="header-meta">Javelin Video Analysis<br/>出力日：{generated}<br/>身長：{height_str}</td>
+  </tr></table>
+</div>
+
+<table class="summary-table"><tr>
+  <td><div class="stat-val">{dur_s} 秒</div><div class="stat-lbl">動画尺</div></td>
+  <td><div class="stat-val">{w_v}x{h_v}</div><div class="stat-lbl">解像度</div></td>
+  <td><div class="stat-val">{fps_v:.1f} fps</div><div class="stat-lbl">フレームレート</div></td>
+  <td><div class="stat-val">{max_kmh_str}</div><div class="stat-lbl">手首最大速度</div></td>
+  <td><div class="stat-val">{detection_str}</div><div class="stat-lbl">ポーズ検出率</div></td>
+</tr></table>
+
+<p class="intro">以下の 6 本の解析動画が同じフォルダに保存されています。それぞれ異なる視点から投擲フォームを分析したものです。動画は VLC メディアプレイヤー などで再生できます。</p>
+
+{cards_html}
+
+<p class="page-footer">本資料は Javelin Video Analysis により自動生成されました — {date_str}</p>
+</body>
+</html>"""
+
+    out_path = output_dir / "説明書.pdf"
+    buf = io.BytesIO()
+    result = pisa.pisaDocument(io.BytesIO(html.encode("utf-8")), buf, encoding="utf-8")
+    if result.err:
+        logger.warning(f"PDF生成中に警告がありました (err={result.err})")
+    with open(out_path, "wb") as f:
+        f.write(buf.getvalue())
+    logger.info(f"Handout PDF saved: {out_path}")
+    w_v      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h_v      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    dur_s    = round(frames_v / fps_v, 1) if fps_v > 0 else 0
+    cap.release()
+
+    height_m  = config.get("height_m")
+    generated = datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M")
+    date_str  = datetime.datetime.now().strftime("%Y年%m月%d日")
+
+    # 各バリアントの詳細説明
+    VARIANT_DETAIL = {
+        "骨格": {
+            "icon": "🦴",
+            "subtitle": "骨格トレース＋手首軌跡",
+            "desc": (
+                "カメラで捉えた映像に、AIが推定した身体の骨格ライン（関節と骨の接続）を"
+                "重ね合わせて表示しています。右手首の軌跡が細い線で記録されており、"
+                "投擲フォームの全体的な流れを確認するのに適しています。"
+            ),
+            "points": [
+                "青色の線と点が骨格ランドマーク",
+                "手首の軌跡でリリース動作のパスを確認できる",
+                "フォームの左右対称性・重心移動の把握に最適",
+            ],
+        },
+        "ヒートマップ": {
+            "icon": "🌡️",
+            "subtitle": "速度ヒートマップ",
+            "desc": (
+                "各関節の動く速さを色で表現しています。"
+                "赤・黄色に近いほど速く動いており、青に近いほどゆっくり動いています。"
+                "どの関節がどのタイミングで加速しているかが視覚的に把握できます。"
+            ),
+            "points": [
+                "赤＝高速、青＝低速（JETカラーマップ）",
+                "リリース局面での手首・肘の加速を色で確認",
+                "体の各部位の使い方の偏りを発見できる",
+            ],
+        },
+        "HUD": {
+            "icon": "🎮",
+            "subtitle": "ゲーム風 HUD（数値ダッシュボード）",
+            "desc": (
+                "ゲームのヘッドアップディスプレイのように、リアルタイムの数値を"
+                "画面上に重ねて表示します。右手首の現在速度・最大速度・円形ゲージで"
+                "リリース瞬間の強さを定量的に把握できます。"
+            ),
+            "points": [
+                "Speed: 右手首のその瞬間の速度（km/h）",
+                "Max Speed: 動画全体での最大速度",
+                "RELEASE フラッシュ: 投擲リリース瞬間を自動検出",
+            ],
+        },
+        "スティックマン": {
+            "icon": "🕹️",
+            "subtitle": "スティックマン（黒背景シルエット）",
+            "desc": (
+                "背景を黒にして、身体をシンプルな線と点だけで表現したモードです。"
+                "余計な情報を排除することで、フォームの輪郭・角度・タイミングが"
+                "クリアに浮かび上がります。コーチとの振り返りに特に有効です。"
+            ),
+            "points": [
+                "黒背景で骨格ラインが際立つ",
+                "手首軌跡をリリース後に徐々にフェードアウト",
+                "フォーム比較・コーチング資料として使いやすい",
+            ],
+        },
+        "コーチング解析": {
+            "icon": "📊",
+            "subtitle": "コーチング解析（5種統合オーバーレイ）",
+            "desc": (
+                "最も情報量の多いモードです。以下の5つの解析が1本の動画に重ね合わされています。"
+                "投擲のフェーズ・関節角度・リリース情報・軌道予測・運動連鎖を一覧できます。"
+            ),
+            "points": [
+                "① フェーズバー（下部）: アプローチ → デリバリー → リリース → フォロースルーの局面表示",
+                "② 関節角度アーク: 肘・肩・股関節のリアルタイム角度（°）",
+                "③ リリーススナップショット: 検出後3秒間、速度（km/h）・角度・時刻を表示",
+                "④ 軌道予測アーク: リリース後の放物線シミュレーション",
+                "⑤ Kinetic Chain（右側）: 足首→膝→腰→肩→肘→手首の速度バー",
+            ],
+        },
+        "ベクトル": {
+            "icon": "➡️",
+            "subtitle": "速度・加速度ベクトル",
+            "desc": (
+                "各関節に矢印を重ねて、動きの方向と大きさを表現します。"
+                "緑の矢印が速度（今どの向きに動いているか）、"
+                "赤の矢印が加速度（速度がどう変化しているか）を示します。"
+            ),
+            "points": [
+                "緑の矢印 → 速度ベクトル（向き＝移動方向、長さ＝速さ）",
+                "赤の矢印 → 加速度ベクトル（同方向なら加速、逆なら減速）",
+                "肩・肘・手首・腰の8関節を対象",
+            ],
+        },
+    }
+
+    # レポートファイルから速度情報を読み込む（存在すれば）
+    max_kmh_str = "—"
+    release_kmh_str = "—"
+    detection_str = "—"
+    for vr in variants_results:
+        rp = output_dir / vr["filename"].replace(".mp4", "_report.json")
+        if rp.exists():
+            try:
+                with open(rp, encoding="utf-8") as f:
+                    rdata = json.load(f)
+                a = rdata.get("analysis", {})
+                if a.get("wrist_max_speed_kmh"):
+                    max_kmh_str = f"{a['wrist_max_speed_kmh']:.1f} km/h"
+                if a.get("release_speed_kmh"):
+                    release_kmh_str = f"{a['release_speed_kmh']:.1f} km/h"
+                if a.get("pose_detection_rate") is not None:
+                    detection_str = f"{a['pose_detection_rate']*100:.0f}%"
+            except Exception:
+                pass
+            break  # 1本分で十分
+
+    height_row = f"<tr><td>身長設定</td><td>{height_m} m</td></tr>" if height_m else ""
+
+    # HTML 各バリアントカード
+    cards_html = ""
+    for i, vr in enumerate(variants_results, 1):
+        name = vr["name"]
+        fname = vr["filename"]
+        ok    = vr["success"]
+        d     = VARIANT_DETAIL.get(name, {})
+        icon  = d.get("icon", "▶")
+        sub   = d.get("subtitle", name)
+        desc  = d.get("desc", "")
+        pts   = d.get("points", [])
+        status_cls = "ok" if ok else "ng"
+        status_txt = "出力済み" if ok else "処理失敗"
+        pts_html = "".join(f"<li>{_html.escape(p)}</li>" for p in pts)
+        cards_html += f"""
+        <div class="card">
+          <div class="card-header">
+            <span class="num">{i}</span>
+            <span class="icon">{icon}</span>
+            <div class="card-title">
+              <strong>{_html.escape(name)}</strong>
+              <span class="subtitle">{_html.escape(sub)}</span>
+            </div>
+            <span class="badge {status_cls}">{status_txt}</span>
+          </div>
+          <p class="desc">{_html.escape(desc)}</p>
+          <ul>{pts_html}</ul>
+          <div class="fname">📄 {_html.escape(fname)}</div>
+        </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Javelin Video Analysis — 解析動画説明書</title>
+<style>
+  @page {{ size: A4; margin: 15mm 12mm 12mm 12mm; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: "Hiragino Kaku Gothic Pro","Yu Gothic","Meiryo",sans-serif;
+         font-size: 10.5pt; color: #1a1a1a; background: #fff; }}
+  header {{ border-bottom: 3px solid #1a56db; padding-bottom: 6px; margin-bottom: 10px; display:flex; justify-content:space-between; align-items:flex-end; }}
+  header h1 {{ font-size: 16pt; color: #1a56db; }}
+  header .meta {{ font-size: 8pt; color: #555; text-align:right; line-height:1.6; }}
+  .summary {{ display: flex; gap: 8px; margin-bottom: 10px; }}
+  .stat {{ flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 10px; background: #f9fafb; }}
+  .stat .val {{ font-size: 13pt; font-weight: bold; color: #1a56db; }}
+  .stat .lbl {{ font-size: 7.5pt; color: #666; }}
+  table.info {{ width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 9pt; }}
+  table.info td {{ border: 1px solid #e5e7eb; padding: 3px 8px; }}
+  table.info td:first-child {{ background: #f3f4f6; font-weight: bold; width: 30%; }}
+  .card {{ border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; margin-bottom: 7px; page-break-inside: avoid; }}
+  .card-header {{ display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }}
+  .num {{ background: #1a56db; color: #fff; border-radius: 50%; width: 20px; height: 20px;
+          display:inline-flex; align-items:center; justify-content:center; font-size:9pt; font-weight:bold; flex-shrink:0; }}
+  .icon {{ font-size: 14pt; flex-shrink:0; }}
+  .card-title {{ flex: 1; }}
+  .card-title strong {{ font-size: 11pt; }}
+  .subtitle {{ display: block; font-size: 8pt; color: #6b7280; }}
+  .badge {{ font-size: 7.5pt; padding: 2px 7px; border-radius: 10px; font-weight: bold; flex-shrink:0; }}
+  .badge.ok {{ background: #dcfce7; color: #166534; }}
+  .badge.ng {{ background: #fee2e2; color: #991b1b; }}
+  .desc {{ font-size: 9pt; color: #374151; margin-bottom: 4px; line-height: 1.55; }}
+  ul {{ padding-left: 16px; font-size: 8.5pt; color: #4b5563; line-height: 1.6; }}
+  .fname {{ font-size: 7.5pt; color: #9ca3af; margin-top: 4px; font-family: monospace; }}
+  footer {{ margin-top: 8px; font-size: 7.5pt; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 4px; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>解析動画 説明書</h1>
+  <div class="meta">
+    Javelin Video Analysis<br>
+    出力日：{generated}<br>
+    身長：{f"{height_m} m" if height_m else "未設定"}
+  </div>
+</header>
+
+<div class="summary">
+  <div class="stat"><div class="val">{dur_s} 秒</div><div class="lbl">動画尺</div></div>
+  <div class="stat"><div class="val">{w_v}×{h_v}</div><div class="lbl">解像度</div></div>
+  <div class="stat"><div class="val">{fps_v:.1f} fps</div><div class="lbl">フレームレート</div></div>
+  <div class="stat"><div class="val">{max_kmh_str}</div><div class="lbl">手首最大速度</div></div>
+  <div class="stat"><div class="val">{detection_str}</div><div class="lbl">ポーズ検出率</div></div>
+</div>
+
+<p style="font-size:9pt;color:#6b7280;margin-bottom:8px;">
+  以下の 6 本の解析動画が同じフォルダに保存されています。
+  それぞれ異なる視点から投擲フォームを分析したものです。
+  動画は <strong>VLC メディアプレイヤー</strong> などで再生できます。
+</p>
+
+{cards_html}
+
+<footer>
+  本資料は Javelin Video Analysis により自動生成されました — {date_str}
+</footer>
+</body>
+</html>"""
+
 def process_video_all_variants(input_path: str, base_output_path: str, config: Dict[str, Any]) -> bool:
-    logger.info("🎬 4つの可視化バリエーションを同時出力します...")
+    logger.info("6つの可視化バリエーションを同時出力します...")
     base_name = Path(base_output_path).stem
     output_dir = Path(base_output_path).parent
     variants = [
         {
-            "name": "骨格+軌跡",
-            "filename": f"{base_name}_skeleton_with_trail.mp4",
+            "name": "骨格",
+            "filename": f"{base_name}_skeleton.mp4",
             "config_override": {
                 "visuals": {
-                    "trails": {"enabled": True, "right_wrist": True},
-                    "vectors": {"enabled": False},
-                    "heatmap": {"enabled": False},
-                    "hud": {"enabled": False}
+                    "heatmap":     True,
+                    "wrist_trail": False,
+                    "vectors":     False,
+                    "hud":         False,
+                    "stickman":    False,
+                    "analysis":    False,
                 }
             }
         },
         {
-            "name": "ヒートマップ",
-            "filename": f"{base_name}_heatmap.mp4",
+            "name": "ベクトル",
+            "filename": f"{base_name}_vectors.mp4",
             "config_override": {
                 "visuals": {
-                    "heatmap": {"enabled": True, "show_colorbar": True},
-                    "vectors": {"enabled": False},
-                    "trails": {"enabled": False},
-                    "hud": {"enabled": False}
+                    "vectors":     True,
+                    "wrist_trail": False,
+                    "heatmap":     False,
+                    "hud":         False,
+                    "stickman":    False,
+                    "analysis":    False,
                 }
             }
         },
         {
-            "name": "ゲーム風HUD",
-            "filename": f"{base_name}_gaming_hud.mp4",
+            "name": "スティックマン",
+            "filename": f"{base_name}_stickman.mp4",
             "config_override": {
                 "visuals": {
-                    "hud": {"enabled": True, "show_metrics": True},
-                    "vectors": {"enabled": False},
-                    "heatmap": {"enabled": False},
-                    "trails": {"enabled": False}
+                    "stickman":    True,
+                    "wrist_trail": False,
+                    "vectors":     False,
+                    "heatmap":     False,
+                    "hud":         False,
+                    "analysis":    False,
                 }
             }
         },
         {
-            "name": "Blender連携用",
-            "filename": f"{base_name}_for_blender.mp4",
+            "name": "HUD",
+            "filename": f"{base_name}_hud.mp4",
             "config_override": {
                 "visuals": {
-                    "vectors": {"enabled": True},
-                    "heatmap": {"enabled": True},
-                    "trails": {"enabled": True, "right_wrist": True},
-                    "hud": {"enabled": False}
-                },
-                "output": {"export_landmarks": True}
+                    "hud":         True,
+                    "wrist_trail": False,
+                    "vectors":     False,
+                    "heatmap":     False,
+                    "stickman":    False,
+                    "analysis":    False,
+                }
             }
-        }
+        },
+        {
+            "name": "コーチング解析",
+            "filename": f"{base_name}_analysis.mp4",
+            "config_override": {
+                "visuals": {
+                    "analysis":    True,
+                    "wrist_trail": False,
+                    "vectors":     False,
+                    "heatmap":     False,
+                    "hud":         False,
+                    "stickman":    False,
+                }
+            }
+        },
     ]
     success_count = 0
     total_variants = len(variants)
+    variants_results = []
     for i, variant in enumerate(variants, 1):
-        print(f"\n📊 [{i}/{total_variants}] {variant['name']}を処理中...")
+        print(f"\n[{i}/{total_variants}] {variant['name']}を処理中...")
         variant_config = config.copy()
         variant_config.update(variant["config_override"])
         output_path = output_dir / variant["filename"]
-        if variant["name"] == "Blender連携用":
-            landmarks_path = output_dir / f"{base_name}_landmarks.json"
-            variant_config["output"]["landmarks_filename"] = str(landmarks_path)
-        if process_video(input_path, str(output_path), variant_config):
+        ok = process_video(input_path, str(output_path), variant_config)
+        if ok:
             success_count += 1
-            logger.info(f"✅ {variant['name']}: {output_path}")
+            logger.info(f"{variant['name']}: {output_path}")
         else:
-            logger.error(f"❌ {variant['name']}の処理に失敗")
-    if success_count >= 3:
-        blender_video = output_dir / f"{base_name}_for_blender.mp4"
-        landmarks_file = output_dir / f"{base_name}_landmarks.json"
-        blender_output = output_dir / f"{base_name}_3d_overlay.mp4"
-        print(f"\n🎭 Blender 3D連携コマンド:")
-        print(f"blender --background --python blender_bridge/scripts/setup_scene.py -- \\")
-        print(f"  --video {blender_video} \\")
-        print(f"  --landmarks {landmarks_file} \\")
-        print(f"  --output {blender_output}")
-    print(f"\n🎉 完了: {success_count}/{total_variants} バリエーションを出力しました")
+            logger.error(f"{variant['name']}の処理に失敗")
+        variants_results.append({"name": variant["name"], "filename": variant["filename"], "success": ok})
+
+    print(f"\n完了: {success_count}/{total_variants} バリエーションを出力しました")
+
+    # 説明書 HTML を生成
+    try:
+        _write_handout_html(output_dir, base_name, variants_results, config, input_path)
+    except Exception as e:
+        logger.warning(f"説明書の生成に失敗しました: {e}")
+
     return success_count == total_variants
 
 
@@ -216,8 +692,14 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
         fps = 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     logger.info(f"Video: {width}x{height}, {fps} fps, {total_frames} frames")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # avc1 (H.264) はブラウザ再生可能。失敗時は mp4v にフォールバック
+    for fourcc_str in ('avc1', 'mp4v'):
+        fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if out.isOpened():
+            logger.info(f"VideoWriter codec: {fourcc_str}")
+            break
+        out.release()
     if not out.isOpened():
         logger.error(f"Failed to create output video: {output_path}")
         cap.release()
@@ -236,6 +718,12 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
     landmarks_data = []
     export_landmarks = config.get("output", {}).get("export_landmarks", False)
     frame_count = 0
+
+    # report.json 用の集計変数
+    _pose_detected_frames = 0
+    _wrist_speeds_ms: list = []   # キャリブ済みフレームの右手首速度 (m/s)
+    _px2m_samples:   list = []   # 有効な px2m サンプル
+    _landmarks_rows: list = []   # CSV出力用ランドマーク行
     try:
         while True:
             ret, frame = cap.read()
@@ -248,6 +736,44 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
                 logger.info(f"Processing frame {frame_count}/{total_frames} ({progress:.1f}%) - Elapsed: {elapsed_time:.1f}s")
             state = pose_analyzer.process(frame, fps)
             result = pose_analyzer.render_basic(frame, state)
+
+            # CSV用ランドマーク行を収集（全バリアント共通: 1回目フレームのみ記録）
+            _landmarks_rows.append({
+                "frame":         frame_count,
+                "time_sec":      (frame_count / fps) if fps > 0 else None,
+                "raw_landmarks": state.get("raw_landmarks"),
+            })
+
+            # report.json 用データ収集
+            points = state.get("points", [])
+            if points and any(p is not None for p in points):
+                _pose_detected_frames += 1
+                # adapters.py と同ロジックで px2m を計算
+                _px2m = None
+                if config.get("height_m") and len(points) > 28:
+                    sh  = points[11] or points[12]
+                    ank = [p for p in (points[27], points[28]) if p is not None]
+                    if sh is not None and ank:
+                        sh_y  = sh[1]
+                        ank_y = max(p[1] for p in ank)
+                        h_px  = abs(ank_y - sh_y)
+                        if h_px > 20:
+                            _px2m = (config["height_m"] * 0.8) / h_px
+                if _px2m and _px2m < 0.5:
+                    _px2m_samples.append(_px2m)
+                    # 右手首 (idx=16) 速度: 前フレームとの差分
+                    p16 = points[16] if len(points) > 16 else None
+                    if p16 is not None and hasattr(process_video, "_prev_wrist") and process_video._prev_wrist is not None:
+                        prev = process_video._prev_wrist
+                        dx = (p16[0] - prev[0]) * _px2m * fps
+                        dy = (p16[1] - prev[1]) * _px2m * fps
+                        spd_ms = float(np.hypot(dx, dy))
+                        if spd_ms < 35.0:
+                            _wrist_speeds_ms.append(spd_ms)
+                    process_video._prev_wrist = points[16] if len(points) > 16 else None
+                else:
+                    if not hasattr(process_video, "_prev_wrist"):
+                        process_video._prev_wrist = None
             if visual_pipeline:
                 try:
                     result = visual_pipeline.apply_all(
@@ -290,6 +816,127 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
     processing_time = frame_count / fps if fps > 0 else 0
     logger.info(f"Video processing completed: {output_path}")
     logger.info(f"Processed {frame_count} frames in {processing_time:.2f}s of video content")
+
+    # ── report.json 出力 ──────────────────────────────────────────────────────
+    try:
+        import datetime
+        px2m_mean = float(np.mean(_px2m_samples)) if _px2m_samples else None
+        spd_arr   = np.array(_wrist_speeds_ms) if _wrist_speeds_ms else np.array([])
+        max_spd_ms   = float(np.max(spd_arr))  if len(spd_arr) else None
+        mean_spd_ms  = float(np.mean(spd_arr)) if len(spd_arr) else None
+
+        # リリース瞬間: 20 m/s を超えた最初のフレーム群のピーク
+        release_kmh = None
+        if len(spd_arr) > 0:
+            cand = spd_arr[spd_arr > 20.0]
+            if len(cand):
+                release_kmh = round(float(np.max(cand)) * 3.6, 1)
+
+        report = {
+            "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "input_video": input_path,
+            "output_video": output_path,
+            "video_info": {
+                "width": width,
+                "height": height,
+                "fps": round(fps, 3),
+                "total_frames": total_frames,
+                "duration_s": round(total_frames / fps, 2) if fps > 0 else None,
+            },
+            "analysis": {
+                "height_m": config.get("height_m"),
+                "px2m_mean": round(px2m_mean, 6) if px2m_mean else None,
+                "calibrated": px2m_mean is not None,
+                "pose_detected_frames": _pose_detected_frames,
+                "pose_detection_rate": round(_pose_detected_frames / frame_count, 3) if frame_count else 0,
+                "wrist_max_speed_kmh":  round(max_spd_ms  * 3.6, 1) if max_spd_ms  else None,
+                "wrist_mean_speed_kmh": round(mean_spd_ms * 3.6, 1) if mean_spd_ms else None,
+                "release_speed_kmh": release_kmh,
+            },
+            "enabled_passes": [k for k, v in config.get("visuals", {}).items() if v is True],
+        }
+
+        # ── CSV 出力（report/ フォルダがあればそこに、なければ output/ に出力）──
+        csv_rel_path = None
+        try:
+            _out_p = Path(output_path)
+            _report_dir = _out_p.parent.parent / "report"
+            if _report_dir.exists():
+                _csv_path = _report_dir / "pose_landmarks.csv"
+                csv_rel_path = "report/pose_landmarks.csv"
+            else:
+                _csv_path = _out_p.parent / "pose_landmarks.csv"
+                csv_rel_path = "pose_landmarks.csv"
+            # all_variants 等で複数回呼ばれる場合は既存ファイルを上書きしない
+            if not _csv_path.exists():
+                export_pose_landmarks_csv(_landmarks_rows, _csv_path)
+        except Exception as csv_err:
+            logger.warning(f"Failed to write pose_landmarks.csv: {csv_err}")
+            csv_rel_path = None
+
+        if csv_rel_path:
+            report["data_files"] = {"pose_landmarks_csv": csv_rel_path}
+
+        # ── 代表フレーム画像の切り出し ──────────────────────────────────────────
+        try:
+            _out_p = Path(output_path)
+            _report_dir = _out_p.parent.parent / "report"
+            if _report_dir.exists():
+                _frames_dir = _report_dir / "frames"
+                _frames_prefix = "report/frames"
+            else:
+                _frames_dir = _out_p.parent / "frames"
+                _frames_prefix = "frames"
+            # all_variants で複数回呼ばれる場合は既存ディレクトリがあればスキップ
+            if not _frames_dir.exists():
+                _frame_paths = extract_representative_frames(input_path, _frames_dir)
+                if _frame_paths:
+                    _rel_paths = [
+                        f"{_frames_prefix}/{Path(p).name}" for p in _frame_paths
+                    ]
+                    report["visual_files"] = {"representative_frames": _rel_paths}
+        except Exception as frame_err:
+            logger.warning(f"Failed to extract representative frames: {frame_err}")
+
+        report_path = output_path.replace(".mp4", "_report.json")
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        logger.info(f"Report saved: {report_path}")
+
+        # ── グラフ画像生成（CSV 出力後に実行、all_variants では1回目のみ）──
+        try:
+            _job_dir = Path(output_path).parent.parent
+            _graphs_dir = _job_dir / "report" / "graphs"
+            if not _graphs_dir.exists():
+                _graph_paths = generate_graphs_for_job(_job_dir)
+                if _graph_paths:
+                    _graph_rels = [f"report/graphs/{Path(p).name}" for p in _graph_paths]
+                    # report.json を再読み込みして visual_files.graphs を追記
+                    with open(report_path, "r", encoding="utf-8") as _f:
+                        _rep = json.load(_f)
+                    _vf = _rep.setdefault("visual_files", {})
+                    _vf["graphs"] = _graph_rels
+                    with open(report_path, "w", encoding="utf-8") as _f:
+                        json.dump(_rep, _f, ensure_ascii=False, indent=2)
+                    logger.info(f"Graph paths added to report.json: {_graph_rels}")
+        except Exception as _graph_err:
+            logger.warning(f"Failed to generate graphs: {_graph_err}")
+
+        # ── PDFレポート生成（グラフ生成後に実行）────────────────────────────────
+        try:
+            _pdf_path = generate_pdf_report_for_job(_job_dir)
+            # report.json に report_files.pdf を追記
+            with open(report_path, "r", encoding="utf-8") as _f:
+                _rep = json.load(_f)
+            _rep.setdefault("report_files", {})["pdf"] = "report/report.pdf"
+            with open(report_path, "w", encoding="utf-8") as _f:
+                json.dump(_rep, _f, ensure_ascii=False, indent=2)
+            logger.info(f"PDF report path added to report.json: report/report.pdf")
+        except Exception as _pdf_err:
+            logger.warning(f"Failed to generate PDF report: {_pdf_err}")
+
+    except Exception as e:
+        logger.warning(f"Failed to write report.json: {e}")
     if export_landmarks and landmarks_data:
         landmarks_filename = config.get("output", {}).get("landmarks_filename", "landmarks.json")
         if os.path.isabs(landmarks_filename) or os.path.dirname(landmarks_filename):
@@ -304,6 +951,11 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
 
 
 def main():
+    # Windows cp932 コンソールで絵文字が UnicodeEncodeError になるのを防ぐ
+    if sys.stdout.encoding and sys.stdout.encoding.lower() in ("cp932", "cp936", "cp949", "cp950", "mbcs"):
+        sys.stdout = open(sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1, closefd=False)
+        sys.stderr = open(sys.stderr.fileno(), mode="w", encoding="utf-8", buffering=1, closefd=False)
+
     parser = argparse.ArgumentParser(
         description="Javelin Video Analysis with Enhanced Visualizations",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -328,15 +980,23 @@ def main():
     parser.add_argument("--vectors", action="store_true", help="速度・加速度ベクトルを表示")
     parser.add_argument("--heatmap", action="store_true", help="速度ヒートマップを表示")
     parser.add_argument("--hud", action="store_true", help="ゲーム風HUDを表示")
+    parser.add_argument("--stickman", action="store_true", help="スティックマン表示（黒背景+ライン骨格）")
+    parser.add_argument("--analysis", action="store_true", help="統合コーチング解析（フェーズ・関節角度・軌道予測・運動連鎖）")
     parser.add_argument("--wrist-trail", action="store_true", help="右手首軌跡を表示")
     parser.add_argument("--glow-trail", action="store_true", help="光軌跡エフェクトを表示")
-    parser.add_argument("--all-variants", action="store_true", help="4つの可視化バリエーションを同時出力")
+    parser.add_argument("--all-variants", action="store_true", help="骨格・ヒートマップ・HUD・スティックマンの4種を同時出力")
     parser.add_argument("--export-landmarks", help="ランドマークをJSONで出力（ファイル名を指定）")
     parser.add_argument("--blender-overlay", action="store_true", help="Blender実行コマンドを表示（要 --export-landmarks）")
     parser.add_argument("--verbose", action="store_true", help="詳細ログを出力")
+    # ジョブ管理用: admin_app.py から呼び出す際に使用
+    parser.add_argument("--input", help="入力動画ファイルのパス（--video の別名。指定時は --video より優先）")
+    parser.add_argument("--output-dir", help="出力ディレクトリのパス（指定時、output/ 以下ではなくこのディレクトリへ結果を保存）")
     args = parser.parse_args()
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+    # --input は --video の別名（指定時は上書き）
+    if args.input:
+        args.video = args.input
     if not args.video:
         input_dir = Path("input")
         if input_dir.exists():
@@ -350,15 +1010,25 @@ def main():
         else:
             logger.error("inputフォルダが存在しません")
             return False
+    # --output-dir が指定されている場合、そのディレクトリへ出力を設定
+    if args.output_dir and not args.output:
+        input_path_obj = Path(args.video).resolve()
+        out_dir = Path(args.output_dir).resolve()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        args.output = str(out_dir / f"analysis_{input_path_obj.name}")
+        logger.info(f"ジョブ出力パス: {args.output}")
     if not args.output:
         input_path = Path(args.video)
         out_dir = Path("output")
         out_dir.mkdir(exist_ok=True)
         args.output = str(out_dir / f"analysis_{input_path.name}")
         logger.info(f"自動設定された出力パス: {args.output}")
+    # 入出力パスを絶対パスに統一（サブプロセス・cwd変化に備える）
+    args.video = str(Path(args.video).resolve())
+    args.output = str(Path(args.output).resolve())
     config = load_config(args.config)
     config = override_config_with_args(config, args)
-    if not VISUALS_AVAILABLE and any([args.vectors, args.heatmap, args.hud, args.wrist_trail, args.glow_trail, args.all_variants]):
+    if not VISUALS_AVAILABLE and any([args.vectors, args.heatmap, args.hud, args.stickman, args.analysis, args.wrist_trail, args.glow_trail, args.all_variants]):
         logger.warning("可視化機能が利用できません。基本機能のみで実行します。")
     if args.all_variants:
         success = process_video_all_variants(args.video, args.output, config)
@@ -366,8 +1036,8 @@ def main():
         success = process_video(args.video, args.output, config)
     if success:
         if args.all_variants:
-            print(f"\n🎉 全バリエーション処理完了！")
-            print(f"📁 出力フォルダ: {Path(args.output).parent}")
+            print(f"\n全バリエーション処理完了!")
+            print(f"出力フォルダ: {Path(args.output).parent}")
         else:
             print(f"\n✅ 処理完了: {args.output}")
             enabled = []

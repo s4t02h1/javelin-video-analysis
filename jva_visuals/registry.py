@@ -67,9 +67,11 @@ class VisualPassRegistry:
         # 適用順序の定義（重要：描画の重なり順）
         pass_order = [
             "wrist_trail",
-            "vectors", 
+            "vectors",
             "heatmap",
             "hud",
+            "stickman",
+            "analysis",
             "glow_trail"  # 最後に適用（最前面）
         ]
         
@@ -106,6 +108,12 @@ class VisualPassRegistry:
             elif pass_name == "hud":
                 from .hud import HUDPass
                 return HUDPass(config)
+            elif pass_name == "stickman":
+                from .stickman import StickmanPass
+                return StickmanPass(config)
+            elif pass_name == "analysis":
+                from .analysis import AnalysisPass
+                return AnalysisPass(config)
             else:
                 logger.warning(f"Unknown visual pass: {pass_name}")
                 return None

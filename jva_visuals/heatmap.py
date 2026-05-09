@@ -23,11 +23,11 @@ class HeatmapPass(VisualPassBase):
         super().__init__(config)
         
         # 描画設定
-        self.radius = config.get("radius", 24)
-        self.alpha = config.get("alpha", 0.35)
+        self.radius = config.get("radius", 18)
+        self.alpha = config.get("alpha", 0.55)
         self.colormap = config.get("colormap", cv2.COLORMAP_JET)
-        self.max_speed_threshold = config.get("max_speed", 50.0)  # px/s or m/s
-        self.min_speed_threshold = config.get("min_speed", 2.0)
+        self.max_speed_threshold = config.get("max_speed", 8.0)   # m/s 上限 (8 m/s=手首までの平均遠位最大)
+        self.min_speed_threshold = config.get("min_speed", 0.3)   # m/s 下限 (0.3 m/s 未満は無視)
         
         # 平滑化設定
         self.smooth_method = config.get("smooth", "ema")
@@ -55,6 +55,8 @@ class HeatmapPass(VisualPassBase):
         self.max_history_length = 60  # 2秒分のフレーム数
         
         self.frame_count = 0
+        # キャリブレーション済み px2m キャッシュ
+        self._stable_px2m: Optional[float] = None
     
     def apply(self, frame: np.ndarray, landmarks: AdaptedLandmarks) -> np.ndarray:
         """ヒートマップを描画"""
@@ -65,10 +67,18 @@ class HeatmapPass(VisualPassBase):
         timestamp = self.frame_count / landmarks.fps
         positions = landmarks.points[:, :2]
         self.kinematics.add_frame(positions, timestamp)
+        # キャリブレーション済み px2m をキャッシュ
+        if landmarks.px2m < 0.5:
+            self._stable_px2m = landmarks.px2m
+        px2m = self._stable_px2m if self._stable_px2m is not None else None
+        # 未キャリブレースの場合はヒートマップをスキップ
+        if px2m is None:
+            self.frame_count += 1
+            return frame
         
         # 現在の運動学データを取得
         kinematics_data = self.kinematics.get_current_kinematics()
-        speeds = kinematics_data['speed'] * landmarks.px2m  # 物理単位に変換
+        speeds = kinematics_data['speed'] * px2m  # m/s 単位
         
         # 速度履歴を更新（動的スケール用）
         if self.adaptive_scale:
@@ -129,17 +139,21 @@ class HeatmapPass(VisualPassBase):
             if not (0 <= joint_pos[0] < w and 0 <= joint_pos[1] < h):
                 continue
             
-            # 速度を正規化
+            # 速度を正規化 (0≥1.0)：各関節の実際の速度比をそのまま反映
             speed = speeds[joint_idx]
             if speed < min_speed:
                 continue
-            
-            normalized_speed = np.clip((speed - min_speed) / (max_speed - min_speed), 0.0, 1.0)
+
+            # 固定スケール正規化： max_speed_threshold を天井にして比例配分
+            # これにより速い関節と遅い関節の濃淡差が正確に出る
+            normalized_speed = np.clip(
+                (speed - min_speed) / (max_speed - min_speed), 0.0, 1.0
+            )
             
             # ガウシアン分布でヒートマップに寄与
             self._add_gaussian_heatspot(heatmap_layer, joint_pos, normalized_speed)
         
-        # カラーマップを適用
+        # ヒートマップを描画
         if np.max(heatmap_layer) > 0:
             result = self._apply_colormap(frame, heatmap_layer)
         else:
@@ -174,8 +188,8 @@ class HeatmapPass(VisualPassBase):
         # 中心からの距離
         distances = np.sqrt((x_indices - cx)**2 + (y_indices - cy)**2)
         
-        # ガウシアン分布（シグマ = radius/3）
-        sigma = self.radius / 3.0
+        # シャープなガウシアン（シグマ = radius/4）— 那高い関節が髮立ちやすくなる
+        sigma = self.radius / 4.0
         gaussian = np.exp(-(distances**2) / (2 * sigma**2))
         
         # 強度を適用してヒートマップに加算
@@ -183,21 +197,19 @@ class HeatmapPass(VisualPassBase):
     
     def _apply_colormap(self, frame: np.ndarray, heatmap: np.ndarray) -> np.ndarray:
         """カラーマップを適用してフレームに合成"""
-        # ヒートマップを0-255に正規化
-        if np.max(heatmap) > 0:
-            normalized_heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
-        else:
-            return frame
-        
+        # 固定スケール正規化：最大値で割るのではなく「1.0を天井」としてそのまま0−1.0にクリップ
+        # → 速い関節る隣に遅い関節の色が正確に出る
+        normalized = np.clip(heatmap, 0.0, 1.0)
+        normalized_u8 = (normalized * 255).astype(np.uint8)
+
         # カラーマップを適用
-        colored_heatmap = cv2.applyColorMap(normalized_heatmap, self.colormap)
+        colored_heatmap = cv2.applyColorMap(normalized_u8, self.colormap)
         
-        # マスクを作成（ゼロ以外の部分のみ）
-        mask = normalized_heatmap > 0
+        # マスク：有意な強度の部分のみ合成
+        mask = normalized_u8 > 0
         
         # アルファブレンディングで合成
         result = frame.copy()
-        
         for c in range(3):
             result[:, :, c] = np.where(
                 mask,
