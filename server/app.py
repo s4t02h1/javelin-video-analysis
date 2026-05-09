@@ -26,7 +26,7 @@ from subprocess import CalledProcessError, run as subprocess_run
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 logger = logging.getLogger("jva.server")
 
@@ -241,5 +241,52 @@ def _run_job(job_id: str, input_key: str) -> None:
 
 # ── エンドポイント ────────────────────────────────────────────────────────────
 # POST /v1/jobs, GET /v1/jobs/{job_id} は jobs_api ルーターに移行済み（Phase 7）
+
+
+# ── ヘルスチェックエンドポイント（Phase 8） ───────────────────────────────────
+
+@app.get("/health", tags=["System"])
+def health_check() -> JSONResponse:
+    """稼働確認。常に 200 を返す。ロードバランサー・k8s の liveness probe に使用。"""
+    return JSONResponse({"status": "ok", "app": "javelin-video-analysis"})
+
+
+@app.get("/ready", tags=["System"])
+def ready_check() -> JSONResponse:
+    """準備状態確認。依存リソースが揃っているか確認する。
+
+    HTTP 200: 正常（全チェック通過）
+    HTTP 503: degraded（必須チェック失敗）
+    """
+    try:
+        from src.config import cfg
+        data_ok = cfg.DATA_DIR.exists()
+        queue_ok = cfg.QUEUE_DIR.exists()
+        log_ok = cfg.LOG_DIR.exists()
+        s3_ok = cfg.S3_CONFIGURED
+    except Exception as exc:
+        logger.error("/ready チェック中にエラー: %s", exc)
+        return JSONResponse(
+            {"status": "error", "app": "javelin-video-analysis", "error": str(exc)},
+            status_code=503,
+        )
+
+    checks = {
+        "data_dir": data_ok,
+        "queue_dir": queue_ok,
+        "log_dir": log_ok,
+        "s3_configured": s3_ok,
+    }
+    # 必須チェック: data_dir と queue_dir
+    ready = data_ok and queue_ok
+    return JSONResponse(
+        {
+            "status": "ok" if ready else "degraded",
+            "app": "javelin-video-analysis",
+            "env": os.getenv("JVA_ENV", "local"),
+            "checks": checks,
+        },
+        status_code=200 if ready else 503,
+    )
 
 

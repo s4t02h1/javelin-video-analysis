@@ -3714,3 +3714,30 @@ with tab_queue:
         "# 最大5件処理して終了\npython worker.py --max-jobs 5",
         language="bash",
     )
+
+    # ── Phase 8: 環境情報 ────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("🔧 環境情報")
+    try:
+        from src.config import cfg as _cfg  # noqa: PLC0415
+        _ec1, _ec2, _ec3 = st.columns(3)
+        _ec1.metric("環境 (JVA_ENV)", _cfg.ENV)
+        _ec2.metric("キューバックエンド", _cfg.QUEUE_BACKEND)
+        _ec3.metric("S3 設定済み", "✅ はい" if _cfg.S3_CONFIGURED else "❌ 未設定")
+
+        _path_data = {
+            "JVA_DATA_DIR":   str(_cfg.DATA_DIR),
+            "JVA_QUEUE_DIR":  str(_cfg.QUEUE_DIR),
+            "JVA_LOG_DIR":    str(_cfg.LOG_DIR),
+            "JVA_UPLOAD_DIR": str(_cfg.UPLOAD_DIR),
+        }
+        _path_status = {k: ("✅ 存在" if __import__("pathlib").Path(v).exists() else "⚠️ 未作成") for k, v in _path_data.items()}
+        st.table(
+            {
+                "環境変数": list(_path_data.keys()),
+                "パス": list(_path_data.values()),
+                "状態": list(_path_status.values()),
+            }
+        )
+    except ImportError:
+        st.info("src/config.py が見つかりません（Phase 8 モジュール未導入）。")

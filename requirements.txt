@@ -25,3 +25,10 @@ pytest-cov
 fastapi
 uvicorn[standard]
 boto3
+
+# 管理画面
+streamlit>=1.30.0
+
+# HTTP クライアント（intake API / LINE webhook）
+httpx
+python-multipart

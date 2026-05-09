@@ -1283,3 +1283,73 @@ curl -X POST http://localhost:8000/v1/jobs/{job_id}/retry \
 
 詳細は [docs/background_worker.md](docs/background_worker.md) を参照してください。
 
+---
+
+## Phase 8: Docker 化・デプロイ準備・本番運用基盤
+
+### 概要
+
+ローカル開発・手動起動中心の構成を **Docker / docker compose** で再現可能に起動できる構成にします。
+
+```
+docker compose up
+```
+
+で `api / admin / worker` の3サービスが起動します。
+
+### クイックスタート
+
+```powershell
+# Windows
+copy .env.example .env
+# .env を編集（最低限 JVA_API_KEY を設定）
+.\scripts\docker_up.ps1
+```
+
+```bash
+# Mac/Linux
+cp .env.example .env
+docker compose build && docker compose up -d
+```
+
+| URL | 説明 |
+|---|---|
+| http://localhost:8000 | FastAPI |
+| http://localhost:8000/docs | API ドキュメント |
+| http://localhost:8000/health | ヘルスチェック |
+| http://localhost:8000/ready | 準備状態確認 |
+| http://localhost:8501 | Streamlit 管理画面 |
+
+### ローカル起動（Docker なし）
+
+```powershell
+# 各サービスを別ウィンドウで起動
+.\scripts\dev_api.ps1
+.\scripts\dev_admin.ps1
+.\scripts\dev_worker.ps1
+```
+
+### Phase 8 で追加・変更されたファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `Dockerfile` | マルチサービス対応（新規） |
+| `.dockerignore` | Docker ビルド除外設定（新規） |
+| `docker-compose.yml` | api / admin / worker 3サービス（新規） |
+| `src/config.py` | 環境変数の一元管理（新規） |
+| `src/logging_config.py` | ログ設定の一元管理（新規） |
+| `server/app.py` | `/health`, `/ready` エンドポイント追加 |
+| `admin_app.py` | 環境情報セクション追加（キュー管理タブ） |
+| `.env.example` | Phase 8 変数を追加しカテゴリ別に整理 |
+| `requirements.txt` | `streamlit`, `httpx`, `python-multipart` を追加 |
+| `scripts/dev_api.ps1` | FastAPI 開発起動スクリプト（新規） |
+| `scripts/dev_admin.ps1` | Streamlit 開発起動スクリプト（新規） |
+| `scripts/dev_worker.ps1` | ワーカー開発起動スクリプト（新規） |
+| `scripts/docker_up.ps1` | Docker Compose 起動スクリプト（新規） |
+| `scripts/docker_down.ps1` | Docker Compose 停止スクリプト（新規） |
+| `docs/deployment_guide.md` | デプロイメントガイド（新規） |
+| `docs/security_checklist.md` | セキュリティチェックリスト（新規） |
+| `tests/test_phase8.py` | Phase 8 ユニットテスト（新規） |
+
+詳細は [docs/deployment_guide.md](docs/deployment_guide.md) を参照してください。
+

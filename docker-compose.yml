@@ -1,0 +1,127 @@
+# ── Javelin Video Analysis — docker-compose.yml (Phase 8) ────────────────────
+#
+# 使用方法:
+#   cp .env.example .env   # .env を作成して設定値を入力
+#   docker compose build
+#   docker compose up
+#   docker compose down
+#
+# サービス:
+#   api    — FastAPI (ジョブ管理 / intake API)     http://localhost:8000
+#   admin  — Streamlit 管理画面                    http://localhost:8501
+#   worker — バックグラウンドジョブワーカー
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI ─────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jva:latest
+    container_name: jva_api
+    restart: unless-stopped
+    command: >
+      uvicorn server.app:app
+        --host 0.0.0.0
+        --port 8000
+        --log-level info
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      JVA_ENV: ${JVA_ENV:-local}
+      JVA_DATA_DIR: /app/data
+      JVA_OUTPUT_DIR: /app/outputs
+      JVA_LOG_DIR: /app/logs
+      JVA_UPLOAD_DIR: /app/uploads
+      JVA_QUEUE_DIR: /app/data/queue
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on: []
+
+  # ── Streamlit 管理画面 ────────────────────────────────────────────────────────
+  admin:
+    image: jva:latest
+    container_name: jva_admin
+    restart: unless-stopped
+    command: >
+      streamlit run admin_app.py
+        --server.address=0.0.0.0
+        --server.port=8501
+        --server.headless=true
+        --browser.gatherUsageStats=false
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      JVA_ENV: ${JVA_ENV:-local}
+      JVA_DATA_DIR: /app/data
+      JVA_OUTPUT_DIR: /app/outputs
+      JVA_LOG_DIR: /app/logs
+      JVA_UPLOAD_DIR: /app/uploads
+      JVA_QUEUE_DIR: /app/data/queue
+    depends_on:
+      - api
+
+  # ── バックグラウンドワーカー ──────────────────────────────────────────────────
+  worker:
+    image: jva:latest
+    container_name: jva_worker
+    restart: unless-stopped
+    command: >
+      python worker.py
+        --poll-interval ${JVA_WORKER_POLL_INTERVAL_SECONDS:-5}
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      JVA_ENV: ${JVA_ENV:-local}
+      JVA_DATA_DIR: /app/data
+      JVA_OUTPUT_DIR: /app/outputs
+      JVA_LOG_DIR: /app/logs
+      JVA_UPLOAD_DIR: /app/uploads
+      JVA_QUEUE_DIR: /app/data/queue
+    depends_on:
+      - api
+
+  # ── Redis（将来用 — Phase 8 では未使用） ──────────────────────────────────────
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: jva_redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   command: redis-server --appendonly yes
+
+# ── ボリューム ─────────────────────────────────────────────────────────────────
+# redis_data:
+#   driver: local
+
+# ── ネットワーク ──────────────────────────────────────────────────────────────
+networks:
+  default:
+    name: jva_network
