@@ -35,65 +35,27 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from src.pdf_styles import (
+    get_font as _get_font,
+    make_header_footer as _make_hf,
+    safe_text as _safe,
+    BODY_BOT_MARGIN,
+    BODY_TOP_MARGIN,
+    MARGIN_H,
+)
+
 logger = logging.getLogger(__name__)
-
-# ── 日本語フォント設定 ──────────────────────────────────────────────────────────
-
-_WINDOWS_FONT_CANDIDATES: list[tuple[str, str]] = [
-    ("Meiryo",   "C:/Windows/Fonts/meiryo.ttc"),
-    ("MSGothic", "C:/Windows/Fonts/msgothic.ttc"),
-    ("YuGothic", "C:/Windows/Fonts/YuGothM.ttc"),
-]
-
-
-def _setup_japanese_font() -> tuple[str, str]:
-    for font_name, font_path in _WINDOWS_FONT_CANDIDATES:
-        p = Path(font_path)
-        if not p.exists():
-            continue
-        try:
-            try:
-                pdfmetrics.getFont(font_name)
-                bold_name = font_name + "Bold"
-                try:
-                    pdfmetrics.getFont(bold_name)
-                except KeyError:
-                    bold_name = font_name
-                return font_name, bold_name
-            except KeyError:
-                pass
-            pdfmetrics.registerFont(TTFont(font_name, str(p), subfontIndex=0))
-            bold_name = font_name + "Bold"
-            try:
-                pdfmetrics.registerFont(TTFont(bold_name, str(p), subfontIndex=1))
-            except Exception:
-                bold_name = font_name
-            logger.info("[coach_review_sheet] 日本語フォント登録: %s", font_path)
-            return font_name, bold_name
-        except Exception as exc:
-            logger.warning("[coach_review_sheet] フォント登録失敗 (%s): %s", font_path, exc)
-    return "", ""
-
-
-_JP_FONT, _JP_FONT_BOLD = _setup_japanese_font()
 
 
 def _fn(bold: bool = False) -> str:
-    if bold:
-        return _JP_FONT_BOLD if _JP_FONT_BOLD else "Helvetica-Bold"
-    return _JP_FONT if _JP_FONT else "Helvetica"
+    return _get_font(bold=bold)
 
-
-def _safe(text: str) -> str:
-    if _JP_FONT:
-        return text
-    return "".join(c if c.encode("latin-1", errors="ignore") else "?" for c in text)
 
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
 
 PAGE_W, PAGE_H = A4
-MARGIN    = 1.8 * cm
+MARGIN    = MARGIN_H
 CONTENT_W = PAGE_W - 2 * MARGIN
 
 BRAND_BLUE   = colors.HexColor("#1A4D8F")
@@ -145,23 +107,7 @@ def _make_styles() -> dict:
 
 # ── ヘッダー・フッター ────────────────────────────────────────────────────────
 
-def _draw_header_footer(canvas, doc):
-    canvas.saveState()
-    canvas.setFillColor(BRAND_BLUE)
-    canvas.rect(0, PAGE_H - 1.0 * cm, PAGE_W, 1.0 * cm, fill=1, stroke=0)
-    canvas.setFillColor(colors.white)
-    canvas.setFont("Helvetica-Bold", 7)
-    canvas.drawString(MARGIN, PAGE_H - 0.65 * cm, "Javelin Video Analysis")
-    canvas.setFont("Helvetica", 7)
-    canvas.drawRightString(PAGE_W - MARGIN, PAGE_H - 0.65 * cm,
-                           "Coach Review Sheet / コーチレビューシート")
-    canvas.setFillColor(MID_GRAY)
-    canvas.rect(0, 0, PAGE_W, 0.8 * cm, fill=1, stroke=0)
-    canvas.setFillColor(TEXT_GRAY)
-    canvas.setFont("Helvetica", 6)
-    canvas.drawString(MARGIN, 0.28 * cm, "Not for medical use  |  Reference estimates only")
-    canvas.drawRightString(PAGE_W - MARGIN, 0.28 * cm, f"Page {doc.page}")
-    canvas.restoreState()
+_draw_header_footer = _make_hf("コーチレビューシート")
 
 
 # ── JSON ヘルパー ───────────────────────────────────────────────────────────
@@ -447,12 +393,12 @@ def generate_coach_review_sheet_for_job(job_dir: Path) -> Path:
     doc = SimpleDocTemplate(
         str(out_path),
         pagesize=A4,
-        leftMargin=MARGIN,
-        rightMargin=MARGIN,
-        topMargin=MARGIN + 1.0 * cm,
-        bottomMargin=MARGIN + 0.8 * cm,
-        title="Coach Review Sheet — Javelin Video Analysis",
-        author="Javelin Video Analysis",
+        leftMargin=MARGIN_H,
+        rightMargin=MARGIN_H,
+        topMargin=BODY_TOP_MARGIN,
+        bottomMargin=BODY_BOT_MARGIN,
+        title="コーチレビューシート — やり投げ動作解析",
+        author="やり投げ動作解析システム",
     )
     doc.build(
         _build_story(job_dir, styles),

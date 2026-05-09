@@ -1590,13 +1590,10 @@ with tab_history:
                                 st.success("✅ 生成済み")
                                 st.caption(f"`{_card['filename']}`")
                                 st.caption(f"{_zk:,} KB  ·  生成: {_zm}")
-                                # キャッシュ経由で読み込み（毎回 read_bytes しない）
-                                _zip_bytes = _read_file_cached(
-                                    str(_zp), _zstat.st_mtime_ns
-                                )
+                                # 大容量 ZIP は open() で渡す（キャッシュを介さない）
                                 st.download_button(
                                     label="⬇ ダウンロード",
-                                    data=_zip_bytes,
+                                    data=open(str(_zp), "rb"),
                                     file_name=_card["filename"],
                                     mime="application/zip",
                                     key=f"dl_zip_{_card['filename']}_{job['job_id']}",
