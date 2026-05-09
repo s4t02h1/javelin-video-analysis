@@ -101,13 +101,6 @@ def _load_csv(csv_path: Path) -> Optional[Any]:
 
 # ── 特徴量計算ユーティリティ ─────────────────────────────────────────────────
 
-def _get_col(df: Any, col: str) -> Optional[Any]:
-    """DataFrame の列を返す。存在しない場合は None。"""
-    if df is None or col not in df.columns:
-        return None
-    return df[col]
-
-
 def _smooth(series: Any, window: int = 3) -> Any:
     """簡易移動平均平滑化。"""
     try:
@@ -132,11 +125,17 @@ def _safe_float(val: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(val: Any) -> Optional[int]:
+def _frame_to_time_sec(df: Any, frame_num: int) -> Optional[float]:
+    """frame 番号に対応する time_sec を df から安全に返す。見つからない場合は None。"""
     try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
+        if "frame" not in df.columns or "time_sec" not in df.columns:
+            return None
+        matches = df.loc[df["frame"] == frame_num, "time_sec"]
+        if len(matches) > 0:
+            return _safe_float(matches.iloc[0])
+    except Exception:
+        pass
+    return None
 
 
 # ── ルールベース推定ロジック ─────────────────────────────────────────────────
@@ -482,8 +481,8 @@ def _estimate_cross_step(
         # クロスは通常 release の約0.5〜1.5秒前
         cs_frame = max(0, release_frame - int(fps_safe * 1.5))
         ce_frame = max(0, release_frame - int(fps_safe * 0.5))
-        cs_time  = _safe_float(df.loc[df.get("frame", df.index) == cs_frame, "time_sec"].iloc[0]) if "time_sec" in df.columns else None
-        ce_time  = _safe_float(df.loc[df.get("frame", df.index) == ce_frame, "time_sec"].iloc[0]) if "time_sec" in df.columns else None
+        cs_time  = _frame_to_time_sec(df, cs_frame)
+        ce_time  = _frame_to_time_sec(df, ce_frame)
         confidence = 0.25
         return (
             _make_result(
@@ -525,11 +524,7 @@ def _estimate_approach(
     else:
         approach_end_frame = total // 4
 
-    approach_end_time = (
-        _safe_float(df.loc[approach_end_frame - 1, "time_sec"])
-        if "time_sec" in df.columns and approach_end_frame > 0 and approach_end_frame <= len(df)
-        else None
-    )
+    approach_end_time = _frame_to_time_sec(df, approach_end_frame)
 
     return (
         _make_result(
@@ -573,12 +568,8 @@ def _estimate_follow_through(
     ft_start = min(release_frame + 1, total - 1)
     ft_end   = min(release_frame + int(fps_safe * 0.5), total - 1)
 
-    ft_start_time = (
-        _safe_float(df.iloc[ft_start]["time_sec"]) if "time_sec" in df.columns else None
-    )
-    ft_end_time = (
-        _safe_float(df.iloc[ft_end]["time_sec"]) if "time_sec" in df.columns else None
-    )
+    ft_start_time = _frame_to_time_sec(df, ft_start)
+    ft_end_time   = _frame_to_time_sec(df, ft_end)
 
     return (
         _make_result(
@@ -610,16 +601,18 @@ def _estimate_recovery(
 
     rec_start = min(follow_through_end + 1, total - 1)
     rec_end   = total - 1
+    rec_start_time = _frame_to_time_sec(df, rec_start)
+    rec_end_time   = _frame_to_time_sec(df, rec_end)
 
     return (
         _make_result(
-            frame=rec_start, time_sec=None, confidence=0.30,
+            frame=rec_start, time_sec=rec_start_time, confidence=0.30,
             method="follow_through_offset",
             reason="フォロースルー終了後をリカバリー開始の候補としています。",
             is_auto=True, needs_review=True,
         ),
         _make_result(
-            frame=rec_end, time_sec=None, confidence=0.25,
+            frame=rec_end, time_sec=rec_end_time, confidence=0.25,
             method="last_frame",
             reason="動画の最終フレームをリカバリー終了の候補としています。",
             is_auto=True, needs_review=True,
@@ -636,17 +629,18 @@ def _make_result(
     is_auto: bool,
     needs_review: bool,
 ) -> Dict[str, Any]:
-    """フェーズ推定結果の共通フォーマットを返す。"""
+    """フェーズ推定結果の共通フォーマットを返す。confidence は [0.0, 1.0] にクランプされる。"""
+    _c = max(0.0, min(1.0, float(confidence)))
     return {
         "frame":            frame,
         "time_sec":         time_sec,
-        "confidence":       round(float(confidence), 4),
-        "confidence_label": confidence_label(confidence),
+        "confidence":       round(_c, 4),
+        "confidence_label": confidence_label(_c),
         "method":           method,
         "reason":           reason,
         "is_auto_detected": is_auto,
         "needs_review":     needs_review,
-        "warning":          confidence_warning(confidence),
+        "warning":          confidence_warning(_c),
     }
 
 
@@ -793,6 +787,24 @@ def detect_phases(
     }
 
 
+# ── フェーズキー → 日本語ラベル ────────────────────────────────────────────────
+
+_PHASE_LABEL_JP: Dict[str, str] = {
+    "approach_start":       "助走（開始）",
+    "approach_end":         "助走（終了）",
+    "cross_step_start":     "クロスステップ（開始）",
+    "cross_step_end":       "クロスステップ（終了）",
+    "withdrawal_start":     "槍を引く（開始）",
+    "withdrawal_end":       "槍を引く（終了）",
+    "block":                "ブロック",
+    "release":              "リリース",
+    "follow_through_start": "フォロースルー（開始）",
+    "follow_through_end":   "フォロースルー（終了）",
+    "recovery_start":       "リカバリー（開始）",
+    "recovery_end":         "リカバリー（終了）",
+}
+
+
 # ── 補正履歴の保存 ─────────────────────────────────────────────────────────────
 
 def save_phase_correction(
@@ -803,6 +815,8 @@ def save_phase_correction(
     accepted: bool,
     confidence: float,
     admin_note: str = "",
+    method: str = "",
+    dominant_arm: str = "",
 ) -> Path:
     """
     フェーズ手動修正履歴を phase_corrections.json に追記保存する。
@@ -823,6 +837,10 @@ def save_phase_correction(
         自動推定の信頼度スコア
     admin_note : str
         管理者メモ
+    method : str
+        自動推定に使用したアルゴリズム名（ML 教師データ用）
+    dominant_arm : str
+        投げ腕（"right" または "left"）（ML 教師データ用）
 
     Returns
     -------
@@ -846,13 +864,19 @@ def save_phase_correction(
         delta = manual_frame - auto_frame
 
     corrections[phase_key] = {
-        "auto_detected_frame":   auto_frame,
+        "schema_version":         "1.0",
+        "job_id":                 Path(job_dir).name,
+        "phase_key":              phase_key,
+        "phase_label_jp":         _PHASE_LABEL_JP.get(phase_key, phase_key),
+        "dominant_arm":           dominant_arm,
+        "auto_detected_frame":    auto_frame,
+        "auto_method":            method,
         "manual_corrected_frame": manual_frame,
-        "accepted_by_admin":     accepted,
-        "correction_delta":      delta,
-        "confidence":            round(float(confidence), 4),
-        "updated_at":            datetime.now().isoformat(timespec="seconds"),
-        "admin_note":            admin_note,
+        "accepted_by_admin":      accepted,
+        "correction_delta":       delta,
+        "confidence":             round(float(confidence), 4),
+        "updated_at":             datetime.now().isoformat(timespec="seconds"),
+        "admin_note":             admin_note,
     }
 
     corr_path.write_text(
@@ -915,6 +939,7 @@ def detect_phases_for_job(job_dir: Path) -> Path:
         if not cfg.get("enabled", True):
             payload = {
                 "status":       "disabled",
+                "dominant_arm": cfg.get("default_dominant_arm", "right"),
                 "reason":       "configs/phase_detection.yaml で無効化されています",
                 "generated_at": datetime.now().isoformat(timespec="seconds"),
                 "phases":       {},
@@ -975,6 +1000,7 @@ def detect_phases_for_job(job_dir: Path) -> Path:
         logger.error("[phase_detection] 推定エラー: %s — %s", job_dir.name, e)
         error_payload = {
             "status":       "error",
+            "dominant_arm": "unknown",
             "reason":       str(e)[:500],
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "phases":       {},

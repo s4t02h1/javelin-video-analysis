@@ -297,6 +297,16 @@ def _step_generate_reports(job_id: str, job_dir: Path) -> List[str]:
         except Exception as e:
             logger.warning("[worker] analysis PDF 生成スキップ: %s", e)
 
+    # Phase 10: video quality PDF
+    try:
+        from src.analysis.video_quality_pdf import generate_video_quality_pdf_for_job
+        p_vq = generate_video_quality_pdf_for_job(job_dir)
+        if p_vq is not None:
+            generated.append(str(p_vq))
+            logger.info("[worker] video_quality PDF 生成完了: %s", p_vq.name)
+    except Exception as e:
+        logger.warning("[worker] video_quality PDF 生成スキップ: %s", e)
+
     logger.info("[worker] generate_reports: %d ファイル生成", len(generated))
     return generated
 

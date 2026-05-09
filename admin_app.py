@@ -2673,17 +2673,20 @@ with tab_history:
                                 "recovery_end":        "リカバリー 終了",
                             }
 
+                            _p10_dominant = _p10_result.get("dominant_arm", "")
+
                             for _p10_key, _p10_label in _p10_phase_labels.items():
                                 _p10_phase = _p10_phases.get(_p10_key)
                                 if not _p10_phase:
                                     continue
 
-                                _p10_frame = _p10_phase.get("frame")
-                                _p10_ts    = _p10_phase.get("time_sec")
-                                _p10_conf  = _p10_phase.get("confidence", 0.0)
-                                _p10_clbl  = _p10_phase.get("confidence_label", "—")
+                                _p10_frame  = _p10_phase.get("frame")
+                                _p10_ts     = _p10_phase.get("time_sec")
+                                _p10_conf   = _p10_phase.get("confidence", 0.0)
+                                _p10_method = _p10_phase.get("method", "")
+                                _p10_clbl   = _p10_phase.get("confidence_label", "—")
                                 _p10_reason = _p10_phase.get("reason", "")
-                                _p10_warn  = _p10_phase.get("warning")
+                                _p10_warn   = _p10_phase.get("warning")
 
                                 _conf_color = (
                                     "🟢" if _p10_conf >= 0.75
@@ -2725,6 +2728,8 @@ with tab_history:
                                                     accepted=True,
                                                     confidence=_p10_conf,
                                                     admin_note="管理画面から採用",
+                                                    method=_p10_method,
+                                                    dominant_arm=_p10_dominant,
                                                 )
                                                 # phase_frames.json にも反映
                                                 _p10_key_to_pf_key = {
@@ -2778,6 +2783,8 @@ with tab_history:
                                                     accepted=False,
                                                     confidence=_p10_conf,
                                                     admin_note="手動修正",
+                                                    method=_p10_method,
+                                                    dominant_arm=_p10_dominant,
                                                 )
                                                 st.success("✅ 修正を保存しました。")
                                             except Exception as _p10se:
@@ -2798,6 +2805,8 @@ with tab_history:
                                                     accepted=False,
                                                     confidence=_p10_conf,
                                                     admin_note="リセット（未指定に戻す）",
+                                                    method=_p10_method,
+                                                    dominant_arm=_p10_dominant,
                                                 )
                                                 st.info("修正をリセットしました。")
                                             except Exception as _p10re:

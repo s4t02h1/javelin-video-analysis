@@ -44,6 +44,45 @@ def _load_json(path: Path) -> Optional[dict]:
         return None
 
 
+def _check_auto_phase_used(job_dir: Path) -> bool:
+    """
+    ジョブが自動推定フェーズ（未確認）を使用している可能性があるか返す。
+
+    phase_frames.json が存在しないか、フレーム指定がほぼ空の場合に
+    phase_detection_result.json が ok ステータスなら True を返す。
+    """
+    pf_path = job_dir / "phase_frames.json"
+    pd_path = job_dir / "report" / "phase_detection_result.json"
+
+    if not pd_path.exists():
+        return False
+
+    # phase_detection_result が ok でなければ自動推定未完了
+    pd_data = _load_json(pd_path)
+    if not pd_data or pd_data.get("status") != "ok":
+        return False
+
+    # phase_frames.json が存在しない → 手動指定なし、自動推定のみ
+    if not pf_path.exists():
+        return True
+
+    # phase_frames.json にフレーム指定が1件以上あれば「手動指定済み」とみなす
+    pf_data = _load_json(pf_path)
+    if not pf_data:
+        return True
+
+    _frame_keys = [
+        "release_frame", "block_frame",
+        "withdrawal_start_frame", "withdrawal_end_frame",
+        "cross_step_start_frame", "cross_step_end_frame",
+        "approach_start_frame", "approach_end_frame",
+        "follow_through_start_frame", "follow_through_end_frame",
+        "recovery_start_frame", "recovery_end_frame",
+    ]
+    has_manual = any(pf_data.get(k) is not None for k in _frame_keys)
+    return not has_manual
+
+
 def _load_summary(job_dir: Path) -> tuple[Optional[dict], str]:
     """analysis_summary.json を読み込む。
 
@@ -133,6 +172,7 @@ def compare_two_jobs(job_dir_a: Path, job_dir_b: Path) -> dict:
             "dominant_hand": summary_a.get("dominant_hand"),
             "total_frames": summary_a.get("total_frames"),
             "duration_sec": summary_a.get("duration_sec"),
+            "auto_phase_used": _check_auto_phase_used(job_dir_a),
         },
         "job_b": {
             "job_id":       job_dir_b.name,
@@ -140,10 +180,27 @@ def compare_two_jobs(job_dir_a: Path, job_dir_b: Path) -> dict:
             "dominant_hand": summary_b.get("dominant_hand"),
             "total_frames": summary_b.get("total_frames"),
             "duration_sec": summary_b.get("duration_sec"),
+            "auto_phase_used": _check_auto_phase_used(job_dir_b),
         },
         "fields":       fields,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+    # Phase 10: いずれかのジョブで自動推定フェーズが未確認の場合は注意文を付与
+    _auto_job_ids = [
+        j["job_id"]
+        for j in [result["job_a"], result["job_b"]]
+        if j.get("auto_phase_used")
+    ]
+    if _auto_job_ids:
+        result["auto_phase_disclaimer"] = (
+            "※ 以下のジョブのフェーズ情報は自動推定候補を使用しています。"
+            f"（{', '.join(_auto_job_ids)}）"
+            "管理者確認前の参考値のため、比較結果の精度が低い可能性があります。"
+            "管理画面でフェーズ情報を確認・修正してから再比較することを推奨します。"
+        )
+    else:
+        result["auto_phase_disclaimer"] = None
 
     logger.info(
         "[compare_jobs] 比較完了: %s vs %s",
