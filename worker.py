@@ -32,7 +32,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from subprocess import CalledProcessError, run as subprocess_run
+from subprocess import run as subprocess_run
 from typing import Any, Dict, List, Optional
 
 # ── パス設定 ─────────────────────────────────────────────────────────────────
@@ -201,10 +201,10 @@ def _step_run_analysis(job_id: str, job_dir: Path, job: dict) -> None:
 
     result = subprocess_run(cmd, check=False, capture_output=True, text=True)
     if result.returncode != 0:
-        err_summary = (result.stderr or result.stdout or "")[:500]
-        raise CalledProcessError(
-            result.returncode, cmd,
-            output=result.stdout, stderr=result.stderr
+        err_output = (result.stderr or result.stdout or "").strip()[:1000]
+        raise RuntimeError(
+            f"run.py が終了コード {result.returncode} で失敗しました。\n"
+            f"エラー出力:\n{err_output}"
         )
     logger.info("[worker] run_analysis 完了: job_id=%s", job_id)
 
@@ -413,28 +413,16 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
         if qm.is_cancel_requested(queue_id):
             raise InterruptedError("キャンセル要求を受け取りました。")
 
-    delivery_url: Optional[str] = None
-
-    # ─ ステップ定義 ────────────────────────────────────────────────────────
+    # ─ ステップ定義（致命的: validate_inputs / run_analysis / generate_artifacts）─
     pipeline_steps = {
-        "validate_inputs":         lambda: _step_validate_inputs(job_id, job_dir),
-        "run_analysis":            lambda: _step_run_analysis(job_id, job_dir, job),
-        "generate_artifacts":      lambda: _step_generate_artifacts(job_id, job_dir),
-        "generate_reports":        lambda: _step_generate_reports(job_id, job_dir),
-        "generate_packages":       lambda: _step_generate_packages(job_id, job_dir),
-        "upload_to_s3":            lambda: _step_upload_to_s3(job_id, job_dir),
-        "generate_delivery_page":  lambda: setattr(  # 戻り値をキャプチャ
-            _run_pipeline, "_delivery_url",
-            _step_generate_delivery_page(job_id, job_dir, job)
-        ),
-        "update_delivery_url":     lambda: _step_update_delivery_url(
-            job_id, getattr(_run_pipeline, "_delivery_url", None)
-        ),
-        "mark_ready":              lambda: _step_mark_ready(job_id),
+        "validate_inputs":    lambda: _step_validate_inputs(job_id, job_dir),
+        "run_analysis":       lambda: _step_run_analysis(job_id, job_dir, job),
+        "generate_artifacts": lambda: _step_generate_artifacts(job_id, job_dir),
+        "generate_reports":   lambda: _step_generate_reports(job_id, job_dir),
+        "generate_packages":  lambda: _step_generate_packages(job_id, job_dir),
+        "upload_to_s3":       lambda: _step_upload_to_s3(job_id, job_dir),
     }
-
-    # generate_delivery_page の戻り値を受け取るための一時属性をリセット
-    _run_pipeline._delivery_url = None  # type: ignore[attr-defined]
+    fatal_steps = {"validate_inputs", "run_analysis", "generate_artifacts"}
 
     # ─ ステップ実行 ────────────────────────────────────────────────────────
     # ジョブステータスを running に更新
@@ -444,22 +432,11 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
         pass
 
     for step_name, step_fn in pipeline_steps.items():
-        # generate_delivery_page は専用のハンドリング
-        if step_name == "generate_delivery_page":
-            try:
-                delivery_url = _step_generate_delivery_page(job_id, job_dir, job)
-                record(step_name, True)
-            except InterruptedError as e:
-                qm.fail_queue_job(queue_id, str(e), "cancelled", steps)
-                try:
-                    jm.update_job(job_id, status="cancelled")
-                except Exception:
-                    pass
-                return False
-            except Exception as e:
-                logger.warning("[worker] %s スキップ (非致命的): %s", step_name, e)
-                record(step_name, False, str(e))
-            continue
+        # 管理画面のリアルタイム表示のため current_step を更新
+        try:
+            qm.update_queue_job(queue_id, current_step=step_name)
+        except Exception:
+            pass
 
         try:
             step_fn()
@@ -478,8 +455,6 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
                          step_name, queue_id, e)
             record(step_name, False, str(e))
 
-            # 致命的なステップ（これ以降は継続不可）
-            fatal_steps = {"validate_inputs", "run_analysis", "generate_artifacts"}
             if step_name in fatal_steps:
                 qm.fail_queue_job(queue_id, str(e), step_name, steps)
                 try:
@@ -489,19 +464,65 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
                 return False
             # 非致命的ステップはログだけで継続
 
-    # update_delivery_url ステップ（delivery_url をここで渡す）
+    # ─ 後処理ステップ（generate_delivery_page → update_delivery_url → mark_ready）──
+    # delivery_url の戻り値を次ステップに渡す必要があるため、ループ外で順に実行する
+
+    # キャンセル確認
+    if qm.is_cancel_requested(queue_id):
+        qm.fail_queue_job(queue_id, "キャンセル要求を受け取りました。", "cancelled", steps)
+        try:
+            jm.update_job(job_id, status="cancelled")
+        except Exception:
+            pass
+        return False
+
+    # generate_delivery_page（非致命的）
+    try:
+        qm.update_queue_job(queue_id, current_step="generate_delivery_page")
+    except Exception:
+        pass
+    delivery_url: Optional[str] = None
+    try:
+        delivery_url = _step_generate_delivery_page(job_id, job_dir, job)
+        record("generate_delivery_page", True)
+        logger.info("[worker] ステップ完了: generate_delivery_page (queue_id=%s)", queue_id)
+    except InterruptedError as e:
+        qm.fail_queue_job(queue_id, str(e), "cancelled", steps)
+        try:
+            jm.update_job(job_id, status="cancelled")
+        except Exception:
+            pass
+        return False
+    except Exception as e:
+        logger.warning("[worker] generate_delivery_page スキップ (非致命的): %s", e)
+        record("generate_delivery_page", False, str(e))
+
+    # update_delivery_url（非致命的）
+    try:
+        qm.update_queue_job(queue_id, current_step="update_delivery_url")
+    except Exception:
+        pass
     try:
         _step_update_delivery_url(job_id, delivery_url)
         record("update_delivery_url", True)
+        logger.info("[worker] ステップ完了: update_delivery_url (queue_id=%s)", queue_id)
     except Exception as e:
         record("update_delivery_url", False, str(e))
 
-    # 完了
-    qm.complete_queue_job(queue_id, steps)
+    # mark_ready（非致命的）
     try:
-        jm.update_job(job_id, status="delivery_ready")
+        qm.update_queue_job(queue_id, current_step="mark_ready")
     except Exception:
         pass
+    try:
+        _step_mark_ready(job_id)
+        record("mark_ready", True)
+        logger.info("[worker] ステップ完了: mark_ready (queue_id=%s)", queue_id)
+    except Exception as e:
+        record("mark_ready", False, str(e))
+
+    # 完了
+    qm.complete_queue_job(queue_id, steps)
 
     logger.info("[worker] パイプライン完了: queue_id=%s job_id=%s", queue_id, job_id)
     return True

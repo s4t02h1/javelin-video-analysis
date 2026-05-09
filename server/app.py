@@ -25,7 +25,7 @@ from pathlib import Path
 from subprocess import CalledProcessError, run as subprocess_run
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("jva.server")

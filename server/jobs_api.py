@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -80,12 +81,12 @@ def _verify_api_key(
         logger.warning("[jobs_api] 開発モード: APIキー認証をスキップしました。")
         return
 
-    if x_jva_api_key and x_jva_api_key == _API_KEY:
+    if x_jva_api_key and secrets.compare_digest(x_jva_api_key, _API_KEY):
         return
 
     if authorization:
         parts = authorization.split(" ", 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1] == _API_KEY:
+        if len(parts) == 2 and parts[0].lower() == "bearer" and secrets.compare_digest(parts[1], _API_KEY):
             return
 
     logger.warning("[jobs_api] 認証失敗")
