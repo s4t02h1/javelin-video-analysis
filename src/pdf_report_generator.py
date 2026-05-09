@@ -377,21 +377,23 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
     # ── 動画情報 ─────────────────────────────────────────────────────────────
     story.append(Paragraph("動画情報", styles["label"]))
     if use_summary:
-        sv = summary.get("video", {}) or {}
-        duration_val  = sv.get("duration_sec")
-        frame_cnt_val = sv.get("frame_count")
+        sv = summary.get("video") or {}
+        # フラット形式（video キーなし）にも対応
+        duration_val  = sv.get("duration_sec") if sv else summary.get("duration_sec")
+        frame_cnt_val = sv.get("frame_count")  if sv else summary.get("total_frames")
+        fps_val       = sv.get("fps")           if sv else (summary.get("fps_estimated") or video_info.get("fps"))
         vid_pairs: list[tuple[str, str]] = [
-            ("Duration",     f"{duration_val:.3f} sec" if isinstance(duration_val, (int, float)) else "—"),
-            ("Frame count",  str(frame_cnt_val) if frame_cnt_val is not None else "—"),
-            ("Resolution",   f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
-            ("FPS",          str(video_info.get("fps", "—"))),
+            ("動画時間",       f"{duration_val:.2f} 秒" if isinstance(duration_val, (int, float)) else "—"),
+            ("総フレーム数",   str(frame_cnt_val) if frame_cnt_val is not None else "—"),
+            ("解像度",         f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
+            ("フレームレート", f"{fps_val}" if fps_val is not None else str(video_info.get("fps", "—"))),
         ]
     else:
         vid_pairs = [
-            ("Resolution",   f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
-            ("FPS",          str(video_info.get("fps", "—"))),
-            ("Total frames", str(video_info.get("total_frames", "—"))),
-            ("Duration",     f"{video_info.get('duration_s', '—')} s"),
+            ("解像度",         f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
+            ("フレームレート", str(video_info.get("fps", "—"))),
+            ("総フレーム数",   str(video_info.get("total_frames", "—"))),
+            ("動画時間",       f"{video_info.get('duration_s', '—')} 秒"),
         ]
     story.append(_kv_table(vid_pairs, styles))
     story.append(Spacer(1, 0.4 * cm))
@@ -399,44 +401,60 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
     # ── 姿勢解析メトリクス（report.json より）──────────────────────────────
     if analysis:
         story.append(Paragraph("姿勢解析メトリクス", styles["label"]))
+        _rs = analysis.get("release_speed_kmh")
         ana_pairs: list[tuple[str, str]] = [
-            ("Height (m)",              str(analysis.get("height_m", "—"))),
-            ("Calibrated",              str(analysis.get("calibrated", "—"))),
-            ("Pose detected frames",    str(analysis.get("pose_detected_frames", "—"))),
-            ("Pose detection rate",     f"{analysis.get('pose_detection_rate', '—'):.0%}"
-                                        if isinstance(analysis.get("pose_detection_rate"), float)
-                                        else str(analysis.get("pose_detection_rate", "—"))),
-            ("Wrist max speed (km/h)",  str(analysis.get("wrist_max_speed_kmh", "—"))),
-            ("Wrist mean speed (km/h)", str(analysis.get("wrist_mean_speed_kmh", "—"))),
-            ("Release speed (km/h)",    str(analysis.get("release_speed_kmh", "—"))),
+            ("身長 (m)",             str(analysis.get("height_m", "—"))),
+            ("キャリブレーション",   "はい" if analysis.get("calibrated") else "いいえ"),
+            ("ポーズ検出フレーム数", str(analysis.get("pose_detected_frames", "—"))),
+            ("ポーズ検出率",         f"{analysis.get('pose_detection_rate', 0):.0%}"
+                                     if isinstance(analysis.get("pose_detection_rate"), float)
+                                     else "—"),
+            ("手首 最大速度 (km/h)", str(analysis.get("wrist_max_speed_kmh", "—"))),
+            ("手首 平均速度 (km/h)", str(analysis.get("wrist_mean_speed_kmh", "—"))),
+            ("リリース速度 (km/h)",  "未計算" if _rs is None else str(_rs)),
         ]
         story.append(_kv_table(ana_pairs, styles))
         story.append(Spacer(1, 0.4 * cm))
 
     # ── analysis_summary.json の拡張データ ──────────────────────────────────
     if use_summary:
-        # Key Metrics
-        km = summary.get("key_metrics", {}) or {}
+        # Key Metrics（ネスト形式 or フラット形式）
+        km = summary.get("key_metrics") or {}
+        if not km:
+            # フラット形式: wrist_height_* / shoulder_center_x_* が直接ある
+            _kf = {k: summary.get(k) for k in (
+                "wrist_height_peak_time_sec", "wrist_height_max", "wrist_height_range",
+                "shoulder_center_x_start", "shoulder_center_x_end",
+                "hip_center_x_start", "hip_center_x_end",
+            )}
+            if any(v is not None for v in _kf.values()):
+                km = _kf
         if km:
-            story.append(Paragraph("Key Metrics", styles["label"]))
-            max_h_time  = km.get("right_wrist_max_height_time_sec")
-            max_h_norm  = km.get("right_wrist_max_height_norm")
-            torso_start = km.get("torso_center_x_start")
-            torso_end   = km.get("torso_center_x_end")
-            story.append(_kv_table([
-                ("Right wrist max height (time)", f"{max_h_time:.3f} sec" if isinstance(max_h_time, (int, float)) else "—"),
-                ("Right wrist max height (norm)", f"{max_h_norm:.4f}"     if isinstance(max_h_norm, (int, float)) else "—"),
-                ("Torso center X (start)",        f"{torso_start:.4f}"    if isinstance(torso_start, (int, float)) else "—"),
-                ("Torso center X (end)",          f"{torso_end:.4f}"      if isinstance(torso_end,   (int, float)) else "—"),
-            ], styles))
+            story.append(Paragraph("手首・体幹メトリクス", styles["label"]))
+            max_h_time  = km.get("right_wrist_max_height_time_sec") or km.get("wrist_height_peak_time_sec")
+            max_h_norm  = km.get("right_wrist_max_height_norm")     or km.get("wrist_height_max")
+            h_range     = km.get("wrist_height_range")
+            torso_start = km.get("torso_center_x_start") or km.get("shoulder_center_x_start")
+            torso_end   = km.get("torso_center_x_end")   or km.get("shoulder_center_x_end")
+            _pairs = [
+                ("手首 最高点到達時刻 (秒)",    f"{max_h_time:.3f}" if isinstance(max_h_time, (int, float)) else "—"),
+                ("手首 最高到達高さ (正規化)",   f"{max_h_norm:.4f}" if isinstance(max_h_norm, (int, float)) else "—"),
+            ]
+            if h_range is not None:
+                _pairs.append(("手首 高さ可動域 (正規化)", f"{h_range:.4f}"))
+            _pairs += [
+                ("体幹中心X 開始 (正規化)",     f"{torso_start:.4f}" if isinstance(torso_start, (int, float)) else "—"),
+                ("体幹中心X 終了 (正規化)",     f"{torso_end:.4f}"   if isinstance(torso_end,   (int, float)) else "—"),
+            ]
+            story.append(_kv_table(_pairs, styles))
             story.append(Spacer(1, 0.4 * cm))
 
         # Pose Quality
-        pq = summary.get("pose_quality", {}) or {}
+        pq = summary.get("pose_quality") or {}
         if pq:
-            story.append(Paragraph("Pose Quality", styles["label"]))
+            story.append(Paragraph("ポーズ検出品質", styles["label"]))
             missing_ratio = pq.get("right_wrist_missing_ratio")
-            missing_str   = f"{missing_ratio * 100:.1f}%" if isinstance(missing_ratio, (int, float)) else "—"
+            missing_str   = f"{missing_ratio * 100:.1f} %" if isinstance(missing_ratio, (int, float)) else "—"
             avg_vis = pq.get("average_visibility") or {}
 
             def _vis_str(key: str) -> str:
@@ -444,20 +462,20 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
                 return f"{v:.3f}" if isinstance(v, (int, float)) else "—"
 
             story.append(_kv_table([
-                ("Right wrist missing ratio",       missing_str),
-                ("Avg visibility: right_shoulder",  _vis_str("right_shoulder")),
-                ("Avg visibility: right_elbow",     _vis_str("right_elbow")),
-                ("Avg visibility: right_wrist",     _vis_str("right_wrist")),
-                ("Avg visibility: left_shoulder",   _vis_str("left_shoulder")),
-                ("Avg visibility: left_elbow",      _vis_str("left_elbow")),
-                ("Avg visibility: left_wrist",      _vis_str("left_wrist")),
+                ("右手首 未検出率",   missing_str),
+                ("平均可視度: 右肩",  _vis_str("right_shoulder")),
+                ("平均可視度: 右肘",  _vis_str("right_elbow")),
+                ("平均可視度: 右手首", _vis_str("right_wrist")),
+                ("平均可視度: 左肩",  _vis_str("left_shoulder")),
+                ("平均可視度: 左肘",  _vis_str("left_elbow")),
+                ("平均可視度: 左手首", _vis_str("left_wrist")),
             ], styles))
             story.append(Spacer(1, 0.4 * cm))
 
         # Warnings from analysis_summary.json
         warnings_list: list = summary.get("warnings") or []
         if warnings_list:
-            story.append(Paragraph("Warnings", styles["label"]))
+            story.append(Paragraph("警告", styles["label"]))
             for w in warnings_list:
                 story.append(Paragraph(f"  • {w}", styles["body_sm"]))
             story.append(Spacer(1, 0.2 * cm))
@@ -800,40 +818,45 @@ def _build_analysis_summary_json_section(report_dir: Path, styles: dict) -> List
 
     # status == "skipped" のときも簡易表示する
     story: List = []
-    story.append(Paragraph("Analysis Summary", styles["section_heading"]))
+    story.append(Paragraph("解析サマリー  /  Analysis Summary", styles["section_heading"]))
     story.extend(_hr(styles))
 
     status = summary.get("status", "unknown")
     if status == "skipped":
         reason = summary.get("reason", "—")
-        story.append(Paragraph(f"Status: skipped  —  {reason}", styles["body_sm"]))
+        story.append(Paragraph(f"スキップ  —  {reason}", styles["body_sm"]))
         story.append(PageBreak())
         return story
 
     # ── Video Info ───────────────────────────────────────────────────────────
-    video = summary.get("video", {})
-    duration   = video.get("duration_sec")
-    frame_cnt  = video.get("frame_count")
-    duration_str   = f"{duration:.3f} sec" if isinstance(duration, (int, float)) else "—"
-    frame_cnt_str  = str(frame_cnt) if frame_cnt is not None else "—"
+    video = summary.get("video") or {}
+    # フラット形式（video キーなし）にも対応
+    duration  = video.get("duration_sec") if video else summary.get("duration_sec")
+    frame_cnt = video.get("frame_count")  if video else summary.get("total_frames")
+    fps_est   = video.get("fps")          if video else summary.get("fps_estimated")
+    duration_str  = f"{duration:.2f} 秒" if isinstance(duration, (int, float)) else "—"
+    frame_cnt_str = str(frame_cnt) if frame_cnt is not None else "—"
+    fps_str       = str(fps_est)   if fps_est   is not None else "—"
 
     # ── Key Metrics ──────────────────────────────────────────────────────────
-    km = summary.get("key_metrics", {})
-    max_h_time = km.get("right_wrist_max_height_time_sec")
-    max_h_norm = km.get("right_wrist_max_height_norm")
-    torso_start = km.get("torso_center_x_start")
-    torso_end   = km.get("torso_center_x_end")
+    km = summary.get("key_metrics") or {}
+    max_h_time  = km.get("right_wrist_max_height_time_sec") or summary.get("wrist_height_peak_time_sec")
+    max_h_norm  = km.get("right_wrist_max_height_norm")     or summary.get("wrist_height_max")
+    h_range     = summary.get("wrist_height_range")
+    torso_start = km.get("torso_center_x_start") or summary.get("shoulder_center_x_start")
+    torso_end   = km.get("torso_center_x_end")   or summary.get("shoulder_center_x_end")
 
-    max_h_time_str  = f"{max_h_time:.3f} sec" if isinstance(max_h_time, (int, float)) else "—"
-    max_h_norm_str  = f"{max_h_norm:.4f}"      if isinstance(max_h_norm, (int, float)) else "—"
-    torso_start_str = f"{torso_start:.4f}"     if isinstance(torso_start, (int, float)) else "—"
-    torso_end_str   = f"{torso_end:.4f}"       if isinstance(torso_end,   (int, float)) else "—"
+    max_h_time_str  = f"{max_h_time:.3f}" if isinstance(max_h_time, (int, float)) else "—"
+    max_h_norm_str  = f"{max_h_norm:.4f}" if isinstance(max_h_norm, (int, float)) else "—"
+    h_range_str     = f"{h_range:.4f}"    if isinstance(h_range,    (int, float)) else "—"
+    torso_start_str = f"{torso_start:.4f}" if isinstance(torso_start, (int, float)) else "—"
+    torso_end_str   = f"{torso_end:.4f}"   if isinstance(torso_end,   (int, float)) else "—"
 
     # ── Pose Quality ─────────────────────────────────────────────────────────
-    pq = summary.get("pose_quality", {})
+    pq = summary.get("pose_quality") or {}
     missing_ratio = pq.get("right_wrist_missing_ratio")
     missing_str   = (
-        f"{missing_ratio * 100:.1f}%"
+        f"{missing_ratio * 100:.1f} %"
         if isinstance(missing_ratio, (int, float))
         else "—"
     )
@@ -844,46 +867,49 @@ def _build_analysis_summary_json_section(report_dir: Path, styles: dict) -> List
         v = avg_vis.get(key)
         return f"{v:.3f}" if isinstance(v, (int, float)) else "—"
 
-    story.append(Paragraph("Video", styles["label"]))
+    story.append(Paragraph("動画情報", styles["label"]))
     story.append(_kv_table([
-        ("Duration",     duration_str),
-        ("Frame count",  frame_cnt_str),
+        ("動画時間",       duration_str),
+        ("総フレーム数",   frame_cnt_str),
+        ("フレームレート", fps_str),
     ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(Paragraph("Key Metrics", styles["label"]))
+    story.append(Paragraph("手首・体幹メトリクス", styles["label"]))
     story.append(_kv_table([
-        ("Right wrist max height (time)",  max_h_time_str),
-        ("Right wrist max height (norm)",  max_h_norm_str),
-        ("Torso center X (start)",         torso_start_str),
-        ("Torso center X (end)",           torso_end_str),
+        ("手首 最高点到達時刻 (秒)",    max_h_time_str),
+        ("手首 最高到達高さ (正規化)",   max_h_norm_str),
+        ("手首 高さ可動域 (正規化)",    h_range_str),
+        ("体幹中心X 開始 (正規化)",     torso_start_str),
+        ("体幹中心X 終了 (正規化)",     torso_end_str),
     ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(Paragraph("Pose Quality", styles["label"]))
-    story.append(_kv_table([
-        ("Right wrist missing ratio",    missing_str),
-        ("Avg visibility: right_shoulder", _vis_str("right_shoulder")),
-        ("Avg visibility: right_elbow",    _vis_str("right_elbow")),
-        ("Avg visibility: right_wrist",    _vis_str("right_wrist")),
-        ("Avg visibility: left_shoulder",  _vis_str("left_shoulder")),
-        ("Avg visibility: left_elbow",     _vis_str("left_elbow")),
-        ("Avg visibility: left_wrist",     _vis_str("left_wrist")),
-    ], styles))
-    story.append(Spacer(1, 0.3 * cm))
+    if pq:
+        story.append(Paragraph("ポーズ検出品質", styles["label"]))
+        story.append(_kv_table([
+            ("右手首 未検出率",    missing_str),
+            ("平均可視度: 右肩",   _vis_str("right_shoulder")),
+            ("平均可視度: 右肘",   _vis_str("right_elbow")),
+            ("平均可視度: 右手首", _vis_str("right_wrist")),
+            ("平均可視度: 左肩",   _vis_str("left_shoulder")),
+            ("平均可視度: 左肘",   _vis_str("left_elbow")),
+            ("平均可視度: 左手首", _vis_str("left_wrist")),
+        ], styles))
+        story.append(Spacer(1, 0.3 * cm))
 
     # ── Warnings ─────────────────────────────────────────────────────────────
     warnings: list = summary.get("warnings") or []
     if warnings:
-        story.append(Paragraph("Warnings", styles["label"]))
+        story.append(Paragraph("警告", styles["label"]))
         for w in warnings:
             story.append(Paragraph(f"  • {w}", styles["body_sm"]))
         story.append(Spacer(1, 0.2 * cm))
 
     # ── Note ─────────────────────────────────────────────────────────────────
     note = (
-        "Note: This analysis is for visualization support only. "
-        "It is not a coaching diagnosis or medical assessment."
+        "本解析は可視化サポート用です。"
+        "コーチング・医療・競技力評価の代替ではありません。"
     )
     story.append(Paragraph(note, styles["body_sm"]))
 

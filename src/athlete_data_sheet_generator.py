@@ -328,6 +328,10 @@ def _collect_metadata(job_dir: Path) -> dict:
         if isinstance(hc_s, (int, float)) and isinstance(hc_e, (int, float)):
             meta["hip_x_delta"] = round(hc_e - hc_s, 4)
 
+        # fps: フラット形式の fps_estimated を読む（report.json があれば後で上書きされる）
+        if summary.get("fps_estimated") is not None and meta.get("fps") is None:
+            meta["fps"] = summary["fps_estimated"]
+
         # 新形式 key_metrics
         km = summary.get("key_metrics") or {}
         if km.get("right_wrist_max_height_time_sec") is not None:

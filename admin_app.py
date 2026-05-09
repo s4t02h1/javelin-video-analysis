@@ -56,6 +56,53 @@ STATUS_ICONS: dict = {
 
 # ── ヘルパー関数 ───────────────────────────────────────────────────────────────
 
+def _gen_button(
+    label: str,
+    btn_key: str,
+    mod_name: str,
+    fn_name: str,
+    job_dir: "Path",
+    spinner_text: str = "生成中...",
+) -> None:
+    """共通生成ボタンヘルパー。
+
+    session_state を使ってメッセージを st.rerun() をまたいで表示する。
+    エラー時はスタックトレースも表示する。
+    """
+    import importlib
+    import traceback
+
+    _state_key = f"_gen_result_{btn_key}"
+
+    # 前回の実行結果を表示（あれば、表示後に削除）
+    if _state_key in st.session_state:
+        _r = st.session_state.pop(_state_key)
+        if _r["ok"]:
+            st.success(_r["msg"])
+        else:
+            st.error(_r["msg"])
+            if _r.get("tb"):
+                st.code(_r["tb"], language="python")
+
+    if st.button(f"🔄 {label}", key=btn_key):
+        with st.spinner(spinner_text):
+            try:
+                _mod = importlib.import_module(mod_name)
+                _fn  = getattr(_mod, fn_name)
+                _result = _fn(job_dir)
+                st.session_state[_state_key] = {
+                    "ok": True,
+                    "msg": f"✅ 生成完了: {_result.name}",
+                }
+            except Exception as _e:
+                st.session_state[_state_key] = {
+                    "ok": False,
+                    "msg": f"生成エラー: {_e}",
+                    "tb": traceback.format_exc(),
+                }
+        st.rerun()
+
+
 def _build_cmd(job: dict) -> list:
     """job dict から run.py 実行コマンドリストを組み立てる。"""
     output_dir = str(get_job_dir(job["job_id"]) / "output")
@@ -989,15 +1036,14 @@ with tab_history:
                     else:
                         st.info("Not generated yet.")
                 with _dc2:
-                    if st.button("🔄 PDF を再生成", key=f"gen_pdf_{job['job_id']}"):
-                        with st.spinner("PDF を生成中..."):
-                            try:
-                                from src.pdf_report_generator import generate_pdf_report_for_job
-                                _new_pdf = generate_pdf_report_for_job(_job_dir)
-                                st.success(f"生成完了: {_new_pdf.name}")
-                                st.rerun()
-                            except Exception as _pe:
-                                st.error(f"PDF 生成エラー: {_pe}")
+                    _gen_button(
+                        "PDF を再生成",
+                        f"gen_pdf_{job['job_id']}",
+                        "src.pdf_report_generator",
+                        "generate_pdf_report_for_job",
+                        _job_dir,
+                        "PDF を生成中...",
+                    )
 
             # ══════════════════════════════════════════════════════════════════
             # D2. 解析動画 説明書 PDF (video_instruction.pdf)
@@ -1025,17 +1071,14 @@ with tab_history:
                     else:
                         st.info("Not generated yet.")
                 with _d2c2:
-                    if st.button("🔄 説明書PDFを生成・再生成", key=f"gen_instr_pdf_{job['job_id']}"):
-                        with st.spinner("説明書PDF を生成中..."):
-                            try:
-                                from src.video_instruction_pdf_generator import (
-                                    generate_video_instruction_pdf_for_job,
-                                )
-                                _new_instr = generate_video_instruction_pdf_for_job(_job_dir)
-                                st.success(f"生成完了: {_new_instr.name}")
-                                st.rerun()
-                            except Exception as _ipe:
-                                st.error(f"説明書PDF 生成エラー: {_ipe}")
+                    _gen_button(
+                        "説明書PDFを生成・再生成",
+                        f"gen_instr_pdf_{job['job_id']}",
+                        "src.video_instruction_pdf_generator",
+                        "generate_video_instruction_pdf_for_job",
+                        _job_dir,
+                        "説明書PDF を生成中...",
+                    )
 
             # ══════════════════════════════════════════════════════════════════
             # K. User-friendly Reports（アスリート向け成果物）
@@ -1108,20 +1151,14 @@ with tab_history:
                         else:
                             st.info("未生成 / Not generated yet.")
                     with _k2:
-                        if st.button(
-                            f"🔄 生成・再生成",
-                            key=f"btn_{_btn_key}_{job['job_id']}",
-                        ):
-                            with st.spinner(f"{_fname} を生成中..."):
-                                try:
-                                    import importlib
-                                    _mod = importlib.import_module(_mod_name)
-                                    _fn  = getattr(_mod, _fn_name)
-                                    _new = _fn(_job_dir)
-                                    st.success(f"生成完了: {_new.name}")
-                                    st.rerun()
-                                except Exception as _ke:
-                                    st.error(f"生成エラー: {_ke}")
+                        _gen_button(
+                            "生成・再生成",
+                            f"btn_{_btn_key}_{job['job_id']}",
+                            _mod_name,
+                            _fn_name,
+                            _job_dir,
+                            f"{_fname} を生成中...",
+                        )
                     st.divider()
 
             # ══════════════════════════════════════════════════════════════════
@@ -1198,13 +1235,15 @@ with tab_history:
                         use_container_width=False,
                     ):
                         with st.spinner("計算中..."):
+                            import traceback as _tb_mod
+                            _j_state_key = f"_gen_result_gen_summary_{job['job_id']}"
                             try:
                                 from src.analysis_summary import generate_analysis_summary_for_job
                                 _sp = generate_analysis_summary_for_job(_job_dir)
-                                st.success(f"✅ 生成完了: {_sp.name}")
-                                st.rerun()
+                                st.session_state[_j_state_key] = {"ok": True, "msg": f"✅ 生成完了: {_sp.name}"}
                             except Exception as _se:
-                                st.error(f"生成エラー: {_se}")
+                                st.session_state[_j_state_key] = {"ok": False, "msg": f"生成エラー: {_se}", "tb": _tb_mod.format_exc()}
+                        st.rerun()
                 else:
                     try:
                         import json as _json_mod
@@ -1366,19 +1405,29 @@ with tab_history:
                     st.divider()
                     _sj_left, _sj_right = st.columns([2, 5])
                     with _sj_left:
+                        _sj_state_key = f"_gen_result_regen_summary_{job['job_id']}"
+                        if _sj_state_key in st.session_state:
+                            _sjr = st.session_state.pop(_sj_state_key)
+                            if _sjr["ok"]:
+                                st.success(_sjr["msg"])
+                            else:
+                                st.error(_sjr["msg"])
+                                if _sjr.get("tb"):
+                                    st.code(_sjr["tb"], language="python")
                         if st.button(
                             "🔄 サマリーを再生成",
                             key=f"regen_summary_{job['job_id']}",
                             use_container_width=True,
                         ):
                             with st.spinner("再計算中..."):
+                                import traceback as _tb_mod
                                 try:
                                     from src.analysis_summary import generate_analysis_summary_for_job
                                     generate_analysis_summary_for_job(_job_dir)
-                                    st.success("✅ 再生成完了")
-                                    st.rerun()
+                                    st.session_state[_sj_state_key] = {"ok": True, "msg": "✅ 再生成完了"}
                                 except Exception as _se:
-                                    st.error(f"エラー: {_se}")
+                                    st.session_state[_sj_state_key] = {"ok": False, "msg": f"エラー: {_se}", "tb": _tb_mod.format_exc()}
+                            st.rerun()
                     with _sj_right:
                         st.caption(f"生成日時: {_summary.get('generated_at', '—')}")
 
@@ -1395,18 +1444,35 @@ with tab_history:
                 # ── ZIP全生成ボタン ──────────────────────────────────────────
                 _fz_left, _fz_right = st.columns([2, 5])
                 with _fz_left:
+                    _zip_state_key = f"_gen_result_gen_zip_{job['job_id']}"
+                    if _zip_state_key in st.session_state:
+                        _zr = st.session_state.pop(_zip_state_key)
+                        if _zr["ok"]:
+                            st.success(_zr["msg"])
+                        else:
+                            st.error(_zr["msg"])
+                            if _zr.get("tb"):
+                                st.code(_zr["tb"], language="python")
                     if st.button("🗜️ ZIPを全て生成・更新", key=f"gen_zip_{job['job_id']}",
                                  use_container_width=True):
                         with st.spinner("ZIP を生成中..."):
+                            import traceback as _tb_mod
                             try:
                                 from src.deliverable_packager import (
                                     create_deliverable_packages_for_job,
                                 )
                                 _zips = create_deliverable_packages_for_job(_job_dir)
-                                st.success(f"✅ 生成完了: {len(_zips)} 件")
-                                st.rerun()
+                                st.session_state[_zip_state_key] = {
+                                    "ok": True,
+                                    "msg": f"✅ 生成完了: {len(_zips)} 件",
+                                }
                             except Exception as _ze:
-                                st.error(f"ZIP 生成エラー: {_ze}")
+                                st.session_state[_zip_state_key] = {
+                                    "ok": False,
+                                    "msg": f"ZIP 生成エラー: {_ze}",
+                                    "tb": _tb_mod.format_exc(),
+                                }
+                        st.rerun()
                 with _fz_right:
                     st.caption(
                         "解析完了後に上記ボタンを押すと3種類のZIPが一括生成されます。"
@@ -1424,7 +1490,7 @@ with tab_history:
                         "subtitle":  "Free Preview Package",
                         "purpose":   "SNSでシェアする前の確認・無料体験として納品",
                         "contents":  [
-                            "📹 解析動画（骨格・トレイル等）",
+                            "📹 解析動画（プレビュー用）",
                             "🖼️ 代表フレーム画像（先頭3枚）",
                             "📖 解析動画 説明書 (video_instruction.pdf)",
                         ],
@@ -1438,10 +1504,13 @@ with tab_history:
                         "subtitle":  "Paid Data Sheet Package",
                         "purpose":   "数値データ・グラフを活用したい競技者・コーチ向け",
                         "contents":  [
-                            "📄 pose_landmarks.csv（全フレーム座標）",
-                            "📈 解析グラフ画像（3種）",
-                            "🖼️ 代表フレーム画像（全枚）",
                             "📖 解析動画 説明書 (video_instruction.pdf)",
+                            "🏃 アスリートデータシート (athlete_data_sheet.pdf)",
+                            "🖼️ キーフレームシート (key_frame_sheet.pdf)",
+                            "📈 グラフパック PDF (graph_pack.pdf)",
+                            "📹 全解析動画",
+                            "🖼️ 代表フレーム画像（全枚）",
+                            "📄 pose_landmarks.csv（生データ）",
                         ],
                         "badge_color": "#1565C0",   # 青
                         "badge_text":  "PAID",
@@ -1453,12 +1522,17 @@ with tab_history:
                         "subtitle":  "Paid Full Report Package",
                         "purpose":   "PDF・動画・データを完全セットで納品したい場合",
                         "contents":  [
-                            "📝 report.pdf（A4レポート）",
+                            "📝 report.pdf（フル解析レポート）",
                             "📖 解析動画 説明書 (video_instruction.pdf)",
-                            "📄 pose_landmarks.csv",
-                            "📈 解析グラフ画像",
-                            "🖼️ 代表フレーム画像（全枚）",
+                            "🏃 アスリートデータシート (athlete_data_sheet.pdf)",
+                            "🖼️ キーフレームシート (key_frame_sheet.pdf)",
+                            "📈 グラフパック PDF (graph_pack.pdf)",
+                            "📝 コーチレビューシート (coach_review_sheet.pdf)",
                             "📹 全解析動画",
+                            "🖼️ 代表フレーム画像（全枚）",
+                            "📄 pose_landmarks.csv（生データ）",
+                            "🗂️ 解析グラフ画像",
+                            "📊 analysis_summary.json（内部データ）",
                         ],
                         "badge_color": "#E65100",   # オレンジ
                         "badge_text":  "PAID",
