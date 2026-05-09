@@ -162,6 +162,7 @@ def _make_comparison_id() -> str:
 def save_comparison(
     result: dict,
     comparisons_root: Optional[Path] = None,
+    comparison_id: Optional[str] = None,
 ) -> Path:
     """
     比較結果を comparisons/<comparison_id>/comparison_summary.json に保存する。
@@ -172,6 +173,9 @@ def save_comparison(
         compare_two_jobs() の返り値
     comparisons_root : Path, optional
         保存先ルート。省略時は jobs/ と同じ階層の jobs/comparisons/ を使う。
+    comparison_id : str, optional
+        既存の comparison_id を指定すると、その ID のディレクトリに保存する。
+        省略時は自動生成する。
 
     Returns
     -------
@@ -187,7 +191,8 @@ def save_comparison(
         else:
             comparisons_root = Path("jobs") / "comparisons"
 
-    comparison_id = _make_comparison_id()
+    if comparison_id is None:
+        comparison_id = _make_comparison_id()
     out_dir = comparisons_root / comparison_id
     out_dir.mkdir(parents=True, exist_ok=True)
 

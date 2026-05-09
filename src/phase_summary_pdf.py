@@ -220,7 +220,7 @@ def generate_phase_summary_pdf(job_dir: Path) -> Path:
     RuntimeError
         PDF 生成に失敗した場合
     """
-    from src.phase_loader import load_phases, get_all_phase_keys, is_range_phase
+    from src.phase_loader import load_phases, get_all_phase_keys
 
     job_dir = Path(job_dir)
 
@@ -288,7 +288,7 @@ def generate_phase_summary_pdf(job_dir: Path) -> Path:
     story.append(hr())
     story.append(section_spacer())
 
-    # フェーズごとに出力
+    # フェーズごとに出力（phase_def は取得済みなので is_range_phase() を再呼び出しせず直接参照）
     for phase_key in phase_keys:
         phase_def = phases.get(phase_key, {})
         if not phase_def:
@@ -299,7 +299,7 @@ def generate_phase_summary_pdf(job_dir: Path) -> Path:
             phase_frames=phase_frames,
             phase_img_dir=phase_img_dir,
             styles=styles,
-            is_range=is_range_phase(phase_key),
+            is_range=bool(phase_def.get("is_range", True)),
         )
         story.extend(entry)
 

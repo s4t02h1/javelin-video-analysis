@@ -97,31 +97,12 @@ def _fmt_diff(diff) -> str:
     return f"{sign}{diff:.3f}"
 
 
-# フェーズキーの全リスト（表示順）
-_PHASE_KEYS_ORDERED = [
-    "approach",
-    "cross_step",
-    "withdrawal",
-    "block",
-    "release",
-    "follow_through",
-    "recovery",
-]
-
-# is_range の既定値
-_PHASE_IS_RANGE = {
-    "approach": True,
-    "cross_step": True,
-    "withdrawal": True,
-    "block": False,
-    "release": False,
-    "follow_through": True,
-    "recovery": True,
-}
+# _PHASE_KEYS_ORDERED / _PHASE_IS_RANGE はモジュールトップには置かない。
+# 実行時に src.phase_loader から取得して使う（phases.yaml と一致を保証）。
 
 
-def _get_phase_img_stems(phase_key: str) -> list[str]:
-    if _PHASE_IS_RANGE.get(phase_key, True):
+def _get_phase_img_stems(phase_key: str, is_range: bool) -> list[str]:
+    if is_range:
         return [f"{phase_key}_start", f"{phase_key}_end"]
     return [phase_key]
 
@@ -141,7 +122,7 @@ def _phase_compare_section(
     label = safe_text(phase_def.get("label", phase_key))
     key_points: list[str] = phase_def.get("key_points") or []
 
-    stems = _get_phase_img_stems(phase_key)
+    stems = _get_phase_img_stems(phase_key, is_range=bool(phase_def.get("is_range", True)))
     elems: list = []
 
     elems.append(
@@ -431,7 +412,7 @@ def generate_comparison_report_pdf(
     Path
         生成された PDF のパス（ comparison_dir/comparison_report.pdf ）
     """
-    from src.phase_loader import load_phases, get_all_phase_keys, is_range_phase
+    from src.phase_loader import load_phases, get_all_phase_keys
 
     comparison_dir = Path(comparison_dir)
     job_dir_a = Path(job_dir_a)

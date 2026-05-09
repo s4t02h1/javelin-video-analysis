@@ -214,6 +214,40 @@ class TestComparisonJobManager:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 3b. src/compare_jobs.py — save_comparison の comparison_id 引数
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSaveComparisonWithId:
+    def test_save_comparison_uses_given_id(self, tmp_path):
+        """comparison_id を指定した場合、そのIDのディレクトリに保存される。"""
+        from src.compare_jobs import save_comparison
+        comp_root = tmp_path / "comparisons"
+        result = {"status": "ok", "fields": {}}
+        out = save_comparison(result, comparisons_root=comp_root, comparison_id="fixed_id_001")
+        assert out.parent.name == "fixed_id_001"
+        assert out.name == "comparison_summary.json"
+
+    def test_save_comparison_auto_id_when_none(self, tmp_path):
+        """comparison_id を省略した場合、自動生成される。"""
+        from src.compare_jobs import save_comparison
+        comp_root = tmp_path / "comparisons"
+        result = {"status": "ok", "fields": {}}
+        out = save_comparison(result, comparisons_root=comp_root)
+        assert out.exists()
+        assert out.name == "comparison_summary.json"
+
+    def test_save_comparison_payload_contains_id(self, tmp_path):
+        """保存された JSON に comparison_id が含まれる。"""
+        import json
+        from src.compare_jobs import save_comparison
+        comp_root = tmp_path / "comparisons"
+        result = {"status": "ok", "fields": {}}
+        out = save_comparison(result, comparisons_root=comp_root, comparison_id="test_id_abc")
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        assert payload["comparison_id"] == "test_id_abc"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4. src/phase_frames.py — フレーム抽出
 # ─────────────────────────────────────────────────────────────────────────────
 
