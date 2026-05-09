@@ -24,6 +24,7 @@ from src.data_exporter import export_pose_landmarks_csv
 from src.frame_extractor import extract_representative_frames
 from src.graph_generator import generate_graphs_for_job
 from src.pdf_report_generator import generate_pdf_report_for_job
+from src.analysis_summary import generate_analysis_summary_for_job
 
 try:
     from jva_visuals.registry import VisualPipeline, VisualPassRegistry
@@ -934,6 +935,18 @@ def process_video(input_path: str, output_path: str, config: Dict[str, Any]) -> 
             logger.info(f"PDF report path added to report.json: report/report.pdf")
         except Exception as _pdf_err:
             logger.warning(f"Failed to generate PDF report: {_pdf_err}")
+
+        # ── 解析サマリー JSON 生成（PDF 生成後に実行）────────────────────────────
+        try:
+            _summary_path = generate_analysis_summary_for_job(_job_dir)
+            with open(report_path, "r", encoding="utf-8") as _f:
+                _rep = json.load(_f)
+            _rep.setdefault("report_files", {})["analysis_summary"] = "report/analysis_summary.json"
+            with open(report_path, "w", encoding="utf-8") as _f:
+                json.dump(_rep, _f, ensure_ascii=False, indent=2)
+            logger.info(f"Analysis summary saved: {_summary_path}")
+        except Exception as _summary_err:
+            logger.warning(f"Failed to generate analysis summary: {_summary_err}")
 
     except Exception as e:
         logger.warning(f"Failed to write report.json: {e}")

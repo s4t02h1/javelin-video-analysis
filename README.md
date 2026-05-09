@@ -476,13 +476,23 @@ print(df[["frame", "time_sec", "right_wrist_x", "right_wrist_y"]].head())
 
 解析完了後、`pose_landmarks.csv` を元に3種類のグラフ画像が `jobs/<job_id>/report/graphs/` に自動保存されます。
 
+#### 利き腕に応じたグラフ生成
+
+`customer_info.json` の `dominant_hand` フィールドに応じて、手首・腕軌跡グラフの対象関節を自動切替します。
+
+| `dominant_hand` | 使用する関節 |
+|---|---|
+| `"right"`（デフォルト）| right_wrist / right_elbow / right_shoulder |
+| `"left"` | left_wrist / left_elbow / left_shoulder |
+| `"unknown"` またはファイルなし | right（デフォルト）|
+
 #### 生成されるグラフ
 
 | ファイル名 | 内容 |
 |---|---|
-| `right_wrist_height.png` | 右手首の高さ変化（時系列）|
-| `right_arm_trajectory.png` | 右肩・右肘・右手首の2D軌跡 |
-| `torso_center_trajectory.png` | 肩中心・腰中心の移動軌跡（時系列＋2D） |
+| `right_wrist_height.png` または `left_wrist_height.png` | 投げ腕の手首高さ変化（時系列）|
+| `right_arm_trajectory.png` または `left_arm_trajectory.png` | 投げ腕の肩・肘・手首 2D 軌跡 |
+| `torso_center_trajectory.png` | 肩中心・腰中心の移動軌跡（左右共通） |
 
 #### グラフの座標系
 
@@ -691,6 +701,70 @@ python run.py --video input/my_video.mp4
 ```
 jobs/
 ```
+
+---
+
+## 🗺️ 動画解析サービス運用ロードマップ
+
+> 久しぶりに開いたときの自分向け運用メモ。サービス化の手順と注意点をまとめています。
+
+### ✅ 現在できること
+
+- Streamlit 管理画面（`admin_app.py`）での依頼受付〜納品管理
+- ジョブ管理（ジョブ作成・ステータス追跡・顧客情報紐付け）
+- CSVデータシート（`pose_landmarks.csv`）の自動出力
+- 代表フレーム画像の自動切り出し
+- グラフ画像の自動生成（手首高さ・腕軌跡・体幹軌跡）
+- PDFレポートの自動生成（日本語対応・顧客情報反映・コーチコメント欄付き）
+- 納品用 ZIP の自動生成（無料プレビュー / データシート / フルレポートの3種）
+- Tailscale 経由での外出先アクセス（Tailnet 内限定）
+- 解析サマリー JSON（`analysis_summary.json`）の自動生成
+- 2ジョブ比較機能（`compare_jobs.py`）
+- 運用チェックリストタブ（受付〜SNS掲載前確認まで8セクション）
+
+### 🔜 次にやること
+
+- PDF の日本語フォント対応（完了済み: meiryo / msgothic / YuGothM フォールバック）
+- 利き腕対応グラフ生成（完了済み: `dominant_hand` に応じた関節切替）
+- 顧客情報の PDF 反映（完了済み: 全フィールド 2 ページ目に表示）
+- `analysis_summary.json` による解析要点の要約（完了済み）
+- 複数動画比較（完了済み: 比較タブ実装）
+- **残課題**: LINE / DM テンプレート自動生成、S3 / クラウドストレージ連携、顧客ポータル画面
+
+### 💴 有料メニュー案
+
+| プラン | 内容 |
+|---|---|
+| 無料プレビュー | 解析動画（骨格/ヒートマップ）+ 代表フレーム3枚 |
+| データシート版 | CSV + グラフ3種 + 代表フレーム全枚 |
+| フルレポート版 | PDF + CSV + グラフ + 全動画 |
+| 2動画比較版 | 2ジョブの比較サマリー + 差分グラフ |
+
+### ⚠️ 注意事項
+
+- 本解析は**競技指導・医療判断・怪我の診断を代替しない**可視化参考資料です
+- 納品物にも「参考資料であり診断ではない」旨を必ず記載すること
+- SNS 掲載前に**顧客本人の掲載許可**を必ず確認すること
+- 動画・個人情報（顧客名・ID等）はローカルの `jobs/` フォルダにのみ保存し、外部共有に注意すること
+- `jobs/` フォルダは `.gitignore` に追加して Git 管理外にすること
+
+### 🖥️ Windows での起動コマンド
+
+```powershell
+# Python 仮想環境を有効化してから実行
+C:\venvs\javelin312\Scripts\python.exe -m streamlit run admin_app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+ブラウザで `http://localhost:8501` を開く。
+
+### 🌐 Tailscale 経由で使う場合の注意
+
+- **一般公開しない** — Tailscale Serve は自分の Tailnet 内限定で使用する
+- **Tailnet 内限定** — スマホと PC を同じ Tailscale アカウントに接続した状態で `https://PC名.tailnet名.ts.net` にアクセス
+- **解析中は PC を落とさない** — 処理中にスリープ/シャットダウンすると外部アクセスが途絶える
+- ファイアウォールで Tailscale / Streamlit 通信がブロックされていないか確認すること
+
+---
 
 ## 🤝 コントリビューション
 

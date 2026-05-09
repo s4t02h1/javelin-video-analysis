@@ -287,7 +287,136 @@ st.set_page_config(
 
 st.title("🎯 Javelin Video Analysis — 管理画面")
 
-tab_new, tab_history = st.tabs(["▶ 新規ジョブ", "📋 ジョブ履歴"])
+
+# ── 運用チェックリスト タブ関数 ───────────────────────────────────────────────
+
+def render_operation_checklist_tab() -> None:
+    """解析依頼の受付〜納品までの運用チェックリストを表示する。"""
+    st.header("📋 運用チェックリスト")
+    st.caption(
+        "解析依頼を受けてから納品するまでの抜け漏れを防ぐためのチェックリストです。"
+        "チェック状態はこのセッション内のみ保持されます。"
+    )
+
+    # ── 免責事項 ──────────────────────────────────────────────────────────────
+    st.info(
+        "⚠️ 本解析は、動画から身体の動きや軌跡を可視化し、練習の振り返りを補助するための参考資料です。"
+        "競技指導・医療判断・怪我の診断を代替するものではありません。"
+    )
+    st.divider()
+
+    # チェック項目定義: (セクション名, [(key, ラベル), ...])
+    _sections: list[tuple[str, list[tuple[str, str]]]] = [
+        (
+            "📥 受付前",
+            [
+                ("pre_01", "顧客名またはInstagram IDを確認した"),
+                ("pre_02", "種目（やり投げ等）を確認した"),
+                ("pre_03", "利き腕（右 / 左）を確認した"),
+                ("pre_04", "身長を確認した（または未計測を了承済み）"),
+                ("pre_05", "撮影方向（側面 / 後方 / 正面 / 斜め）を確認した"),
+                ("pre_06", "SNS・資料への掲載可否を確認した"),
+                ("pre_07", "有料 / 無料プランを確定した"),
+            ],
+        ),
+        (
+            "📹 動画受領後",
+            [
+                ("recv_01", "動画ファイルを受け取った"),
+                ("recv_02", "動画が再生できることを確認した（VLC等）"),
+                ("recv_03", "動画形式が .mp4 であることを確認した"),
+                ("recv_04", "動画に人物が映っていることを確認した"),
+                ("recv_05", "撮影方向が適切か確認した（側面推奨）"),
+            ],
+        ),
+        (
+            "⚙️ 解析前",
+            [
+                ("pre_ana_01", "ジョブを新規作成した"),
+                ("pre_ana_02", "顧客情報（customer_info.json）を入力した"),
+                ("pre_ana_03", "解析モードを選択した（all_variants 推奨）"),
+                ("pre_ana_04", "身長を設定した（任意）"),
+                ("pre_ana_05", "解析を開始した"),
+            ],
+        ),
+        (
+            "✅ 解析後",
+            [
+                ("post_01", "解析が completed ステータスで完了していることを確認した"),
+                ("post_02", "代表フレームが生成されていることを確認した"),
+                ("post_03", "グラフ画像が生成されていることを確認した"),
+                ("post_04", "解析サマリー (analysis_summary.json) を生成した"),
+                ("post_05", "PDFレポートを確認・再生成した"),
+                ("post_06", "コーチコメントをPDFに入力した"),
+            ],
+        ),
+        (
+            "🆓 無料プレビュー納品",
+            [
+                ("free_01", "free_preview.zip を生成した"),
+                ("free_02", "ZIPの中身（動画・フレーム画像）を確認した"),
+                ("free_03", "無料プレビュー納品文を作成した"),
+                ("free_04", "顧客に納品した"),
+                ("free_05", "有料版への案内メッセージを送った"),
+            ],
+        ),
+        (
+            "📊 有料データシート案内",
+            [
+                ("paid_ds_01", "data_sheet_package.zip を生成した"),
+                ("paid_ds_02", "グラフ画像（3種）が含まれていることを確認した"),
+                ("paid_ds_03", "pose_landmarks.csv が含まれていることを確認した"),
+                ("paid_ds_04", "有料データシート納品文を作成・送付した"),
+                ("paid_ds_05", "支払い状況を確認した"),
+            ],
+        ),
+        (
+            "📄 フルレポート納品",
+            [
+                ("full_01", "full_report_package.zip を生成した"),
+                ("full_02", "PDFレポートを最終確認した"),
+                ("full_03", "全解析動画が ZIP に含まれていることを確認した"),
+                ("full_04", "フルレポート納品文を作成・送付した"),
+                ("full_05", "delivery_status を 'delivered' に更新した"),
+                ("full_06", "支払い完了を確認した"),
+            ],
+        ),
+        (
+            "📸 SNS掲載前確認",
+            [
+                ("sns_01", "顧客のSNS掲載許可を得ていることを確認した"),
+                ("sns_02", "顧客名・IDの表示方法を確認した（匿名 / 実名）"),
+                ("sns_03", "動画・画像に個人情報が映り込んでいないか確認した"),
+                ("sns_04", "投稿文に免責事項（参考資料である旨）を含めた"),
+            ],
+        ),
+    ]
+
+    _total  = sum(len(items) for _, items in _sections)
+    _checked = 0
+
+    for _sec_title, _items in _sections:
+        st.subheader(_sec_title)
+        for _key, _label in _items:
+            _full_key = f"checklist_{_key}"
+            if st.checkbox(_label, key=_full_key):
+                _checked += 1
+        st.divider()
+
+    # 進捗バー
+    _pct = int(_checked / _total * 100) if _total > 0 else 0
+    st.markdown(f"**進捗: {_checked} / {_total} 項目チェック済み ({_pct}%)**")
+    st.progress(_pct / 100)
+
+    if _checked == _total:
+        st.success("🎉 全項目チェック完了！納品準備が整いました。")
+    elif _checked >= _total * 0.8:
+        st.info("もう少しです。残りの項目を確認してください。")
+
+
+tab_new, tab_history, tab_compare, tab_checklist = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト"]
+)
 
 
 # ─── Tab 1: 新規ジョブ ─────────────────────────────────────────────────────────
@@ -825,6 +954,123 @@ with tab_history:
                 st.code(str(_job_dir), language=None)
 
             # ══════════════════════════════════════════════════════════════════
+            # J. 解析サマリー (analysis_summary.json)
+            # ══════════════════════════════════════════════════════════════════
+            _summary_path = _job_dir / "report" / "analysis_summary.json"
+            with st.expander("📊 J. 解析サマリー", expanded=False):
+                if not _summary_path.exists():
+                    st.info("analysis_summary.json がまだ生成されていません。")
+                    st.caption(
+                        "解析完了後に自動生成されます。"
+                        "手動で生成する場合は以下のボタンを押してください。"
+                    )
+                    if st.button(
+                        "📊 解析サマリーを生成", key=f"gen_summary_{job['job_id']}",
+                        use_container_width=False,
+                    ):
+                        with st.spinner("計算中..."):
+                            try:
+                                from src.analysis_summary import generate_analysis_summary_for_job
+                                _sp = generate_analysis_summary_for_job(_job_dir)
+                                st.success(f"✅ 生成完了: {_sp.name}")
+                                st.rerun()
+                            except Exception as _se:
+                                st.error(f"生成エラー: {_se}")
+                else:
+                    try:
+                        import json as _json_mod
+                        _summary = _json_mod.loads(
+                            _summary_path.read_text(encoding="utf-8")
+                        )
+                    except Exception as _re:
+                        st.error(f"読み込みエラー: {_re}")
+                        _summary = {}
+
+                    _s_status = _summary.get("status", "unknown")
+                    if _s_status == "skipped":
+                        st.warning(
+                            f"⚠️ スキップ: {_summary.get('reason', '不明な理由')}"
+                        )
+                    else:
+                        # ── メトリクスカード ────────────────────────────────
+                        _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+                        _sc1.metric(
+                            "総フレーム数",
+                            f"{_summary.get('total_frames', '—'):,}" if _summary.get('total_frames') is not None else "—",
+                        )
+                        _sc2.metric(
+                            "動画尺",
+                            f"{_summary.get('duration_sec', '—')} 秒" if _summary.get('duration_sec') is not None else "—",
+                        )
+                        _sc3.metric(
+                            "推定 FPS",
+                            f"{_summary.get('fps_estimated', '—')}" if _summary.get('fps_estimated') is not None else "—",
+                        )
+                        _sc4.metric(
+                            "利き腕",
+                            str(_summary.get('dominant_hand', '—')).capitalize(),
+                        )
+
+                        st.markdown("**手首高さ（投げ腕）**")
+                        _wc1, _wc2, _wc3 = st.columns(3)
+                        _wc1.metric("最小", f"{_summary.get('wrist_height_min', '—')}")
+                        _wc2.metric("最大", f"{_summary.get('wrist_height_max', '—')}")
+                        _wc3.metric("可動域", f"{_summary.get('wrist_height_range', '—')}")
+
+                        _wp_frame = _summary.get('wrist_height_peak_frame')
+                        _wp_time  = _summary.get('wrist_height_peak_time_sec')
+                        if _wp_frame is not None:
+                            st.caption(
+                                f"ピーク: フレーム {_wp_frame}"
+                                + (f"  /  {_wp_time} 秒" if _wp_time is not None else "")
+                            )
+
+                        st.markdown("**重心移動（X 軸, 0=左端 / 1=右端）**")
+                        _gc1, _gc2 = st.columns(2)
+                        with _gc1:
+                            st.caption("肩中心")
+                            _sc_s = _summary.get('shoulder_center_x_start')
+                            _sc_e = _summary.get('shoulder_center_x_end')
+                            st.write(
+                                f"開始: `{_sc_s}`  →  終了: `{_sc_e}`"
+                                + (f"  （移動: `{round(_sc_e - _sc_s, 4)}`）"
+                                   if _sc_s is not None and _sc_e is not None else "")
+                            )
+                        with _gc2:
+                            st.caption("腰中心")
+                            _hc_s = _summary.get('hip_center_x_start')
+                            _hc_e = _summary.get('hip_center_x_end')
+                            st.write(
+                                f"開始: `{_hc_s}`  →  終了: `{_hc_e}`"
+                                + (f"  （移動: `{round(_hc_e - _hc_s, 4)}`）"
+                                   if _hc_s is not None and _hc_e is not None else "")
+                            )
+
+                    # ── 生成ボタン（再生成） ────────────────────────────────
+                    st.divider()
+                    _sj_left, _sj_right = st.columns([2, 5])
+                    with _sj_left:
+                        if st.button(
+                            "🔄 サマリーを再生成",
+                            key=f"regen_summary_{job['job_id']}",
+                            use_container_width=True,
+                        ):
+                            with st.spinner("再計算中..."):
+                                try:
+                                    from src.analysis_summary import generate_analysis_summary_for_job
+                                    generate_analysis_summary_for_job(_job_dir)
+                                    st.success("✅ 再生成完了")
+                                    st.rerun()
+                                except Exception as _se:
+                                    st.error(f"エラー: {_se}")
+                    with _sj_right:
+                        st.caption(f"生成日時: {_summary.get('generated_at', '—')}")
+
+                    # ── 生の JSON 表示 ──────────────────────────────────────
+                    with st.expander("🗂️ Raw JSON", expanded=False):
+                        st.json(_summary)
+
+            # ══════════════════════════════════════════════════════════════════
             # F. 納品用ZIPパッケージ
             # ══════════════════════════════════════════════════════════════════
             with st.expander("📦 F. 納品用ZIPパッケージ", expanded=False):
@@ -998,3 +1244,208 @@ with tab_history:
                         label_visibility="collapsed",
                     )
                     st.divider()
+
+
+# ─── Tab 3: ジョブ比較 ────────────────────────────────────────────────────────
+
+with tab_compare:
+    st.header("⚖️ ジョブ比較")
+    st.caption(
+        "完了済みの2つのジョブを選択し、analysis_summary.json の差分を比較します。"
+        "比較前に各ジョブの「📊 J. 解析サマリー」が生成されている必要があります。"
+    )
+
+    # ── 完了済みジョブ一覧を取得 ──────────────────────────────────────────────
+    _all_jobs = list_jobs()
+    _done_jobs = [j for j in _all_jobs if j.get("status") == "completed"]
+
+    if len(_done_jobs) < 2:
+        st.warning(
+            "比較には完了済みジョブが2つ以上必要です。"
+            "先に「新規ジョブ」タブで解析を実行してください。"
+        )
+    else:
+        # job_id → 表示ラベルのマッピング
+        def _job_label(j: dict) -> str:
+            ci = get_customer_info(j["job_id"])
+            name = ci.get("customer_name") or ""
+            ts   = j.get("created_at", j["job_id"])[:16] if j.get("created_at") else j["job_id"]
+            return f"{ts}  {name}  [{j['job_id']}]" if name else f"{ts}  [{j['job_id']}]"
+
+        _job_options   = [j["job_id"] for j in _done_jobs]
+        _job_labels    = {j["job_id"]: _job_label(j) for j in _done_jobs}
+        _label_to_id   = {v: k for k, v in _job_labels.items()}
+        _display_opts  = [_job_labels[jid] for jid in _job_options]
+
+        _cmp_col1, _cmp_col2 = st.columns(2)
+        with _cmp_col1:
+            st.markdown("**Job A（比較元）**")
+            _sel_a_label = st.selectbox(
+                "Job A", options=_display_opts,
+                index=0,
+                key="cmp_job_a",
+                label_visibility="collapsed",
+            )
+        with _cmp_col2:
+            st.markdown("**Job B（比較先）**")
+            _sel_b_label = st.selectbox(
+                "Job B", options=_display_opts,
+                index=min(1, len(_display_opts) - 1),
+                key="cmp_job_b",
+                label_visibility="collapsed",
+            )
+
+        _sel_a_id = _label_to_id[_sel_a_label]
+        _sel_b_id = _label_to_id[_sel_b_label]
+
+        if _sel_a_id == _sel_b_id:
+            st.warning("同じジョブが選択されています。異なるジョブを選択してください。")
+        else:
+            # ── 比較サマリー存在チェック ──────────────────────────────────
+            _dir_a = get_job_dir(_sel_a_id)
+            _dir_b = get_job_dir(_sel_b_id)
+            _sum_a_exists = (_dir_a / "report" / "analysis_summary.json").exists()
+            _sum_b_exists = (_dir_b / "report" / "analysis_summary.json").exists()
+
+            if not _sum_a_exists or not _sum_b_exists:
+                _missing = []
+                if not _sum_a_exists:
+                    _missing.append(f"Job A ({_sel_a_id})")
+                if not _sum_b_exists:
+                    _missing.append(f"Job B ({_sel_b_id})")
+                st.warning(
+                    f"以下のジョブの analysis_summary.json がありません: "
+                    f"{', '.join(_missing)}  \n"
+                    f"ジョブ詳細の「📊 J. 解析サマリー」から先に生成してください。"
+                )
+
+            # ── 比較実行ボタン ────────────────────────────────────────────
+            if st.button(
+                "⚖️ 比較を実行",
+                key="run_compare",
+                use_container_width=False,
+                disabled=(not _sum_a_exists or not _sum_b_exists),
+            ):
+                with st.spinner("比較中..."):
+                    try:
+                        import sys as _sys
+                        _sys.path.insert(0, str(_REPO_ROOT / "src"))
+                        from src.compare_jobs import compare_two_jobs, save_comparison
+                        _cmp_result = compare_two_jobs(_dir_a, _dir_b)
+                        if _cmp_result.get("status") == "error":
+                            st.error(f"比較エラー: {_cmp_result.get('error')}")
+                        else:
+                            _saved_path = save_comparison(
+                                _cmp_result,
+                                comparisons_root=JOBS_DIR / "comparisons",
+                            )
+                            st.session_state["last_comparison"] = _cmp_result
+                            st.session_state["last_comparison_path"] = str(_saved_path)
+                            st.success(f"✅ 比較完了  →  保存先: `{_saved_path}`")
+                            st.rerun()
+                    except Exception as _ce:
+                        st.error(f"比較処理エラー: {_ce}")
+
+        # ── 比較結果の表示 ────────────────────────────────────────────────────
+        _cmp_data: dict | None = st.session_state.get("last_comparison")
+        if _cmp_data and _cmp_data.get("status") == "ok":
+            st.divider()
+            st.subheader("比較結果")
+
+            # ジョブ基本情報
+            _ja = _cmp_data.get("job_a", {})
+            _jb = _cmp_data.get("job_b", {})
+            _info_cols = st.columns(2)
+            with _info_cols[0]:
+                st.markdown(
+                    f"**Job A** — `{_ja.get('job_id', '—')}`  \n"
+                    f"利き腕: {str(_ja.get('dominant_hand', '—')).capitalize()}  |  "
+                    f"フレーム数: {_ja.get('total_frames', '—')}"
+                )
+            with _info_cols[1]:
+                st.markdown(
+                    f"**Job B** — `{_jb.get('job_id', '—')}`  \n"
+                    f"利き腕: {str(_jb.get('dominant_hand', '—')).capitalize()}  |  "
+                    f"フレーム数: {_jb.get('total_frames', '—')}"
+                )
+
+            # 差分テーブル
+            _fields = _cmp_data.get("fields", {})
+            _table_rows = []
+            for _fkey, _fval in _fields.items():
+                _diff_v = _fval.get("diff")
+                if _diff_v is not None:
+                    _diff_str = f"+{_diff_v}" if _diff_v > 0 else str(_diff_v)
+                else:
+                    _diff_str = "—"
+                _table_rows.append({
+                    "指標":           _fval.get("label", _fkey),
+                    "Job A":          _fval.get("a") if _fval.get("a") is not None else "—",
+                    "Job B":          _fval.get("b") if _fval.get("b") is not None else "—",
+                    "差分 (B − A)":   _diff_str,
+                })
+
+            _df_cmp = pd.DataFrame(_table_rows)
+            st.dataframe(_df_cmp, use_container_width=True, hide_index=True)
+
+            # 保存先
+            _saved_str = st.session_state.get("last_comparison_path")
+            if _saved_str:
+                st.caption(f"比較結果保存先: `{_saved_str}`")
+
+            # Raw JSON
+            with st.expander("🗂️ Raw JSON", expanded=False):
+                st.json(_cmp_data)
+
+    # ── 過去の比較履歴 ────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("比較履歴")
+    _comp_root = JOBS_DIR / "comparisons"
+    if not _comp_root.exists() or not any(_comp_root.iterdir()):
+        st.info("比較履歴はまだありません。")
+    else:
+        try:
+            import sys as _sys2
+            _sys2.path.insert(0, str(_REPO_ROOT / "src"))
+            from src.compare_jobs import list_comparisons
+            _history = list_comparisons(_comp_root)
+        except Exception:
+            _history = []
+
+        if not _history:
+            st.info("比較履歴の読み込みに失敗しました。")
+        else:
+            for _h in _history:
+                _cid  = _h.get("comparison_id", "—")
+                _hja  = _h.get("job_a", {})
+                _hjb  = _h.get("job_b", {})
+                _hgen = _h.get("generated_at", "—")
+                with st.expander(
+                    f"🕓 {_cid}  |  {_hja.get('job_id','?')}  vs  {_hjb.get('job_id','?')}",
+                    expanded=False,
+                ):
+                    if _h.get("status") == "error":
+                        st.error(_h.get("error"))
+                    else:
+                        _hfields = _h.get("fields", {})
+                        _hrows = []
+                        for _fk, _fv in _hfields.items():
+                            _dv = _fv.get("diff")
+                            _hrows.append({
+                                "指標":         _fv.get("label", _fk),
+                                "Job A":        _fv.get("a") if _fv.get("a") is not None else "—",
+                                "Job B":        _fv.get("b") if _fv.get("b") is not None else "—",
+                                "差分 (B − A)": f"+{_dv}" if (_dv is not None and _dv > 0) else (str(_dv) if _dv is not None else "—"),
+                            })
+                        st.dataframe(
+                            pd.DataFrame(_hrows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(f"生成日時: {_hgen}")
+
+
+# ─── Tab 4: 運用チェックリスト ────────────────────────────────────────────────
+
+with tab_checklist:
+    render_operation_checklist_tab()

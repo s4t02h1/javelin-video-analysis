@@ -39,8 +39,69 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.frames import Frame
 from reportlab.platypus.doctemplate import PageTemplate, BaseDocTemplate
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 logger = logging.getLogger(__name__)
+
+# ── 日本語フォント設定 ─────────────────────────────────────────────────────────────────────────────
+
+_WINDOWS_FONT_CANDIDATES: list[tuple[str, str]] = [
+    ("Meiryo",   "C:/Windows/Fonts/meiryo.ttc"),
+    ("MSGothic", "C:/Windows/Fonts/msgothic.ttc"),
+    ("YuGothic", "C:/Windows/Fonts/YuGothM.ttc"),
+]
+
+
+def _setup_japanese_font() -> tuple[str, str, str]:
+    """Windows フォントフォルダから日本語 TrueType フォントを探して ReportLab に登録する。
+
+    僕さいフォントまたは登録失敗時は ("" , "", "") を返す。
+
+    Returns
+    -------
+    tuple[str, str, str]
+        (標準フォント名, 太字フォント名, フォントファイルパス)
+    """
+    for font_name, font_path in _WINDOWS_FONT_CANDIDATES:
+        p = Path(font_path)
+        if not p.exists():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(font_name, str(p), subfontIndex=0))
+            bold_name = font_name + "Bold"
+            try:
+                pdfmetrics.registerFont(TTFont(bold_name, str(p), subfontIndex=1))
+            except Exception:
+                bold_name = font_name  # 太字サブフォントがなければ標準を流用
+            logger.info(
+                "[pdf_report_generator] 日本語フォント登録完了: %s (regular=%s, bold=%s)",
+                font_path, font_name, bold_name,
+            )
+            return font_name, bold_name, font_path
+        except Exception as exc:
+            logger.warning(
+                "[pdf_report_generator] フォント登録失敗 (%s): %s", font_path, exc
+            )
+    logger.info(
+        "[pdf_report_generator] 日本語フォントが見つかりません。Helvetica にフォールバックします。"
+    )
+    return "", "", ""
+
+
+_JP_FONT, _JP_FONT_BOLD, _JP_FONT_PATH = _setup_japanese_font()
+
+
+def _fn(bold: bool = False) -> str:
+    """使用するフォント名を返す（日本語フォント優先、なければ Helvetica）。
+
+    Args:
+        bold: True の場合は太字フォント名を返す。
+    """
+    if bold:
+        return _JP_FONT_BOLD if _JP_FONT_BOLD else "Helvetica-Bold"
+    return _JP_FONT if _JP_FONT else "Helvetica"
+
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
 
@@ -68,7 +129,7 @@ def _make_styles() -> dict:
     return {
         "cover_title": s(
             "CoverTitle",
-            fontName="Helvetica-Bold",
+            fontName=_fn(bold=True),
             fontSize=28,
             textColor=BRAND_BLUE,
             spaceAfter=6,
@@ -76,7 +137,7 @@ def _make_styles() -> dict:
         ),
         "cover_subtitle": s(
             "CoverSubtitle",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=13,
             textColor=BRAND_ORANGE,
             spaceAfter=2,
@@ -84,14 +145,14 @@ def _make_styles() -> dict:
         ),
         "cover_date": s(
             "CoverDate",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=10,
             textColor=colors.grey,
             alignment=TA_CENTER,
         ),
         "section_heading": s(
             "SectionHeading",
-            fontName="Helvetica-Bold",
+            fontName=_fn(bold=True),
             fontSize=14,
             textColor=BRAND_BLUE,
             spaceBefore=12,
@@ -99,23 +160,23 @@ def _make_styles() -> dict:
         ),
         "body": s(
             "Body",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=10,
             textColor=TEXT_DARK,
             spaceAfter=2,
-            leading=14,
+            leading=16,
         ),
         "body_sm": s(
             "BodySm",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=9,
             textColor=colors.grey,
             spaceAfter=1,
-            leading=13,
+            leading=14,
         ),
         "caption": s(
             "Caption",
-            fontName="Helvetica-Oblique",
+            fontName=_fn(),
             fontSize=8,
             textColor=colors.grey,
             alignment=TA_CENTER,
@@ -123,29 +184,29 @@ def _make_styles() -> dict:
         ),
         "disclaimer": s(
             "Disclaimer",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=9,
             textColor=TEXT_DARK,
             spaceAfter=6,
-            leading=14,
+            leading=16,
             alignment=TA_LEFT,
         ),
         "label": s(
             "Label",
-            fontName="Helvetica-Bold",
+            fontName=_fn(bold=True),
             fontSize=10,
             textColor=TEXT_DARK,
             spaceAfter=2,
         ),
         "kv_key": s(
             "KVKey",
-            fontName="Helvetica-Bold",
+            fontName=_fn(bold=True),
             fontSize=10,
             textColor=BRAND_BLUE,
         ),
         "kv_val": s(
             "KVVal",
-            fontName="Helvetica",
+            fontName=_fn(),
             fontSize=10,
             textColor=TEXT_DARK,
         ),
@@ -236,14 +297,12 @@ def _hr(styles: dict) -> List:
 
 
 def _sanitize_for_helvetica(text: str) -> str:
-    """Helvetica (Latin-1) で表現できない文字を '?' に置換して返す。
+    """日本語フォントが登録済みならそのまま返す。
 
-    TODO: 日本語フォント対応
-          reportlab.pdfbase.ttfonts.TTFont や
-          reportlab.pdfbase.cidfonts.UnicodeCIDFont を使って
-          日本語フォント (例: NotoSansCJK, IPA明朝) を登録することで
-          文字化けを解消できる。現状は Helvetica のみ使用。
+    Helvetica のみの場合は Latin-1 で表現できない文字を '?' に置換する。
     """
+    if _JP_FONT:
+        return text  # 日本語フォント登録済み—サニタイズ不要
     result: list[str] = []
     for ch in text:
         try:
@@ -259,8 +318,8 @@ def _sanitize_for_helvetica(text: str) -> str:
 def _build_cover(job: dict, rep: dict, styles: dict) -> List:
     story = []
     story.append(Spacer(1, 4.0 * cm))
-    story.append(Paragraph("Javelin Motion Analysis", styles["cover_title"]))
-    story.append(Paragraph("Report", styles["cover_title"]))
+    story.append(Paragraph("動作解析レポート", styles["cover_title"]))
+    story.append(Paragraph("Javelin Motion Analysis Report", styles["cover_subtitle"]))
     story.append(Spacer(1, 0.6 * cm))
     story.append(HRFlowable(width=CONTENT_W * 0.5, color=BRAND_ORANGE,
                              hAlign="CENTER", thickness=2))
@@ -295,14 +354,14 @@ def _build_cover(job: dict, rep: dict, styles: dict) -> List:
 
 def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict) -> List:
     story = []
-    story.append(Paragraph("Analysis Summary", styles["section_heading"]))
+    story.append(Paragraph("解析サマリー  /  Analysis Summary", styles["section_heading"]))
     story.extend(_hr(styles))
 
     analysis = rep.get("analysis", {})
     video_info = rep.get("video_info", {})
 
     # 動画情報
-    story.append(Paragraph("Video Information", styles["label"]))
+    story.append(Paragraph("動画情報", styles["label"]))
     vid_pairs: list[tuple[str, str]] = [
         ("Resolution",  f"{video_info.get('width', '—')} × {video_info.get('height', '—')} px"),
         ("FPS",         str(video_info.get("fps", "—"))),
@@ -314,7 +373,7 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
 
     # 解析結果
     if analysis:
-        story.append(Paragraph("Pose Analysis Metrics", styles["label"]))
+        story.append(Paragraph("姿勢解析メトリクス", styles["label"]))
         ana_pairs: list[tuple[str, str]] = [
             ("Height (m)",              f"{analysis.get('height_m', '—')}"),
             ("Calibrated",              str(analysis.get("calibrated", "—"))),
@@ -330,7 +389,7 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
         story.append(Spacer(1, 0.4 * cm))
 
     # ファイル有無サマリ
-    story.append(Paragraph("Output File Summary", styles["label"]))
+    story.append(Paragraph("出力ファイル一覧", styles["label"]))
     frames_dir  = report_dir / "frames"
     graphs_dir  = report_dir / "graphs"
     csv_path    = report_dir / "pose_landmarks.csv"
@@ -351,7 +410,7 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
 
     # 出力動画ファイル一覧
     if mp4_list:
-        story.append(Paragraph("Output Video Files", styles["label"]))
+        story.append(Paragraph("出力動画ファイル", styles["label"]))
         for mp4 in mp4_list:
             story.append(Paragraph(f"  • {Path(mp4).name}", styles["body_sm"]))
 
@@ -362,7 +421,7 @@ def _build_analysis_summary(job: dict, rep: dict, report_dir: Path, styles: dict
 def _build_frames_pages(report_dir: Path, styles: dict,
                         images_per_page: int = 4) -> List:
     story = []
-    story.append(Paragraph("Representative Frames", styles["section_heading"]))
+    story.append(Paragraph("代表フレーム  /  Representative Frames", styles["section_heading"]))
     story.extend(_hr(styles))
 
     frames_dir = report_dir / "frames"
@@ -371,7 +430,7 @@ def _build_frames_pages(report_dir: Path, styles: dict,
         frame_imgs = sorted(frames_dir.glob("*.jpg")) + sorted(frames_dir.glob("*.png"))
 
     if not frame_imgs:
-        story.append(Paragraph("No representative frames found.", styles["body"]))
+        story.append(Paragraph("代表フレームが見つかりませんでした。", styles["body"]))
         story.append(PageBreak())
         return story
 
@@ -429,7 +488,7 @@ def _build_frames_pages(report_dir: Path, styles: dict,
 def _build_graphs_pages(report_dir: Path, styles: dict,
                         images_per_page: int = 2) -> List:
     story = []
-    story.append(Paragraph("Analysis Graphs", styles["section_heading"]))
+    story.append(Paragraph("解析グラフ  /  Analysis Graphs", styles["section_heading"]))
     story.extend(_hr(styles))
 
     graphs_dir = report_dir / "graphs"
@@ -438,7 +497,7 @@ def _build_graphs_pages(report_dir: Path, styles: dict,
         graph_imgs = sorted(graphs_dir.glob("*.png"))
 
     if not graph_imgs:
-        story.append(Paragraph("No graph images found.", styles["body"]))
+        story.append(Paragraph("グラフ画像が見つかりませんでした。", styles["body"]))
         story.append(PageBreak())
         return story
 
@@ -465,53 +524,87 @@ def _build_graphs_pages(report_dir: Path, styles: dict,
 
 
 def _build_coach_comment(customer_info: dict, styles: dict) -> List:
-    """Coach Comment / Simple Review セクションを生成する。
+    """依頼情報 / コーチコメント（簡易レビュー）セクションを生成する。
 
-    customer_info.json の内容を元に顧客情報・相談メモ・コーチコメントを表示する。
-    各フィールドが空または存在しない場合でも安全に動作する。
+    customer_info.json の全フィールドを反映する。
+    各フィールドが空または存在しない場合でも安全に動作する（空 dict でも可）。
 
     Parameters
     ----------
     customer_info : dict
-        customer_info.json を読み込んだ dict（空 dict でも可）
+        customer_info.json を読み込んだ dict
     styles : dict
         _make_styles() の返り値
     """
     story: List = []
-    story.append(Paragraph("Coach Comment / Simple Review", styles["section_heading"]))
+    story.append(Paragraph(
+        "コーチコメント / 簡易レビュー  /  Coach Comment",
+        styles["section_heading"],
+    ))
     story.extend(_hr(styles))
     story.append(Spacer(1, 0.2 * cm))
 
-    # ── 顧客・競技情報テーブル ─────────────────────────────────────────────────
+    # ── ヘルパー ──────────────────────────────────────────────────────────────
     def _s(key: str, default: str = "\u2014") -> str:
         """フィールドを安全に取り出してサニタイズする。"""
         v = customer_info.get(key) or ""
-        return _sanitize_for_helvetica(str(v)) if v else default
+        return _sanitize_for_helvetica(str(v).strip()) if v else default
 
-    customer_pairs: list[tuple[str, str]] = [
-        ("Customer Name", _s("customer_name")),
-        ("Event",         _s("event")),
-        ("Dominant Hand", _s("dominant_hand")),
-        ("Camera Angle",  _s("camera_angle")),
+    # 身長
+    _height_raw = customer_info.get("height_m")
+    try:
+        height_str = f"{float(_height_raw):.2f} m" if _height_raw is not None else "\u2014"
+    except (ValueError, TypeError):
+        height_str = "\u2014"
+
+    # 支払・納品ステータスの日本語マッピング
+    _paid_map = {
+        "paid":    "支払済",
+        "unpaid":  "未払い",
+        "unknown": "不明",
+    }
+    _delivery_map = {
+        "not_started": "未着手",
+        "in_progress": "進行中",
+        "delivered":   "納品済",
+        "unknown":     "不明",
+    }
+    paid_raw     = str(customer_info.get("paid_status")     or "unknown")
+    delivery_raw = str(customer_info.get("delivery_status") or "not_started")
+    paid_str     = _paid_map.get(paid_raw,     paid_raw)
+    delivery_str = _delivery_map.get(delivery_raw, delivery_raw)
+
+    # ── アスリート情報テーブル ────────────────────────────────────────────────
+    athlete_pairs: list[tuple[str, str]] = [
+        ("お名前",          _s("customer_name")),
+        ("Instagram",      _s("instagram_id")),
+        ("種目",            _s("event")),
+        ("利き腕",          _s("dominant_hand")),
+        ("身長",            height_str),
+        ("撮影方向",        _s("camera_angle")),
+        ("支払ステータス",  paid_str),
+        ("納品ステータス",  delivery_str),
     ]
-    story.append(Paragraph("Athlete Information", styles["label"]))
-    story.append(_kv_table(customer_pairs, styles))
-    story.append(Spacer(1, 0.4 * cm))
+    story.append(Paragraph("アスリート情報", styles["label"]))
+    story.append(_kv_table(athlete_pairs, styles))
+    story.append(Spacer(1, 0.5 * cm))
 
-    # ── Request Note ──────────────────────────────────────────────────────────
-    request_note: str = customer_info.get("request_note") or ""
+    # ── ご相談内容 ────────────────────────────────────────────────────────────
+    story.append(Paragraph("ご相談内容", styles["label"]))
+    request_note: str = (customer_info.get("request_note") or "").strip()
     if request_note:
-        story.append(Paragraph("Request Note", styles["label"]))
         story.append(Paragraph(_sanitize_for_helvetica(request_note), styles["body"]))
-        story.append(Spacer(1, 0.4 * cm))
+    else:
+        story.append(Paragraph("記載なし", styles["body_sm"]))
+    story.append(Spacer(1, 0.5 * cm))
 
-    # ── Coach Comment ─────────────────────────────────────────────────────────
-    story.append(Paragraph("Coach Comment", styles["label"]))
-    coach_comment: str = customer_info.get("coach_comment") or ""
+    # ── コーチコメント（簡易レビュー） ────────────────────────────────────────
+    story.append(Paragraph("コーチコメント", styles["label"]))
+    coach_comment: str = (customer_info.get("coach_comment") or "").strip()
     if coach_comment:
         story.append(Paragraph(_sanitize_for_helvetica(coach_comment), styles["body"]))
     else:
-        story.append(Paragraph("(No comment entered.)", styles["body_sm"]))
+        story.append(Paragraph("コメント未入力", styles["body_sm"]))
 
     story.append(PageBreak())
     return story
@@ -519,27 +612,24 @@ def _build_coach_comment(customer_info: dict, styles: dict) -> List:
 
 def _build_disclaimer(styles: dict) -> List:
     story = []
-    story.append(Paragraph("Notes & Disclaimer", styles["section_heading"]))
+    story.append(Paragraph("注意事項・免責事項  /  Notes & Disclaimer", styles["section_heading"]))
     story.extend(_hr(styles))
     story.append(Spacer(1, 0.4 * cm))
 
     disclaimer_lines = [
+        "本解析は、動画から身体の動きや軌跡を可視化し、練習の振り返りを補助するための参考資料です。"
+        "競技指導・医療判断・怪我の診断を代替するものではありません。",
+        "",
         "This report is generated automatically from pose estimation data "
-        "obtained through computer vision processing.",
+        "obtained through computer vision processing. "
+        "It is <b>not</b> a medical diagnosis or professional coaching assessment.",
         "",
-        "This is <b>not</b> a medical diagnosis or professional coaching diagnosis. "
-        "The data presented in this report should not be used as the sole basis "
-        "for medical, training, or rehabilitation decisions.",
-        "",
-        "Pose estimation accuracy may vary depending on camera angle, video quality, "
-        "subject occlusion, lighting conditions, and clothing. "
-        "Estimated metrics (speeds, angles, trajectories) may include measurement errors.",
-        "",
-        "Please use this report as a visual reference and supplementary data summary "
-        "alongside qualified professional assessment.",
+        "姿勢推定の精度は、カメラアングル・動画品質・被写体の陰影・照明条件・服装などによって変動します。"
+        "速度・角度・軌跡などの推定値には計測誤差が含まれる場合があります。",
         "",
         f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        "Software: Javelin Video Analysis  |  Engine: MediaPipe Pose",
+        f"Software: Javelin Video Analysis  |  Engine: MediaPipe Pose",
+        f"Font: {_JP_FONT_PATH if _JP_FONT_PATH else 'Helvetica (Latin-1 fallback)'}",
     ]
     for line in disclaimer_lines:
         story.append(Paragraph(line if line else "&nbsp;", styles["disclaimer"]))
@@ -596,11 +686,11 @@ def generate_pdf_report_for_job(job_dir: Path) -> Path:
     # ストーリー組み立て
     story: List = []
     story.extend(_build_cover(job, rep, styles))
-    story.extend(_build_analysis_summary(job, rep, report_dir, styles))
     try:
-        story.extend(_build_coach_comment(customer_info, styles))
+        story.extend(_build_coach_comment(customer_info, styles))   # page 2: 依頼情報
     except Exception as _ce:
-        logger.warning(f"[pdf_report_generator] coach comment section skipped: {_ce}")
+        logger.warning("[pdf_report_generator] coach comment section skipped: %s", _ce)
+    story.extend(_build_analysis_summary(job, rep, report_dir, styles))
     story.extend(_build_frames_pages(report_dir, styles, images_per_page=4))
     story.extend(_build_graphs_pages(report_dir, styles, images_per_page=2))
     story.extend(_build_disclaimer(styles))
@@ -627,5 +717,9 @@ def generate_pdf_report_for_job(job_dir: Path) -> Path:
     except Exception as e:
         raise RuntimeError(f"PDF build failed: {e}") from e
 
-    logger.info(f"[pdf_report_generator] PDF saved: {pdf_path}")
+    logger.info(
+        "[pdf_report_generator] PDF saved: %s  (font: %s)",
+        pdf_path,
+        _JP_FONT_PATH if _JP_FONT_PATH else "Helvetica (fallback)",
+    )
     return pdf_path

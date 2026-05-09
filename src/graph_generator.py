@@ -10,6 +10,7 @@ pose_landmarks.csv を読み込み、解析グラフ画像を生成する。
     graph_paths = generate_graphs_for_job(Path("jobs/20260508_070156_518a"))
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import List
@@ -54,22 +55,39 @@ def _require_cols(df: pd.DataFrame, cols: List[str], graph_name: str) -> bool:
     return True
 
 
-# ── グラフ A: 右手首の高さ変化 ──────────────────────────────────────────────
-def _graph_right_wrist_height(df: pd.DataFrame, out_dir: Path) -> "Path | None":
-    """right_wrist_height.png を生成して Path を返す。失敗時は None。"""
-    cols = ["time_sec", "right_wrist_y"]
-    if not _require_cols(df, cols, "right_wrist_height"):
+# ── グラフ A: 手首の高さ変化（利き腕対応）──────────────────────────────────
+
+def _graph_wrist_height(
+    df: "pd.DataFrame",
+    out_dir: Path,
+    side: str,
+) -> "Path | None":
+    """{side}_wrist_height.png を生成して Path を返す。失敗時は None。
+
+    Args:
+        df: pose_landmarks の DataFrame
+        out_dir: 出力先ディレクトリ
+        side: "right" または "left"
+    """
+    label = side.capitalize()
+    col_y = f"{side}_wrist_y"
+    gname = f"{side}_wrist_height"
+    cols  = ["time_sec", col_y]
+    if not _require_cols(df, cols, gname):
         return None
     try:
-        out_path = out_dir / "right_wrist_height.png"
-        # y 座標は MediaPipe では上=0、下=1 なので反転
-        sub = df[df["right_wrist_y"].notna()].copy()
-        height_val = 1.0 - sub["right_wrist_y"]
+        out_path = out_dir / f"{gname}.png"
+        sub = df[df[col_y].notna()].copy()
+        height_val = 1.0 - sub[col_y]   # MediaPipe: 上=0 → 反転
 
         with plt.style.context(_STYLE):
             fig, ax = plt.subplots(figsize=(_FIG_W, _FIG_H), dpi=_FIG_DPI)
-            ax.plot(sub["time_sec"], height_val, color="#2563eb", linewidth=1.5)
-            ax.set_title("Right Wrist Height Over Time", fontsize=14, fontweight="bold", pad=12)
+            color = "#2563eb" if side == "right" else "#dc2626"
+            ax.plot(sub["time_sec"], height_val, color=color, linewidth=1.5)
+            ax.set_title(
+                f"{label} Wrist Height Over Time",
+                fontsize=14, fontweight="bold", pad=12,
+            )
             ax.set_xlabel("Time (sec)", fontsize=11)
             ax.set_ylabel("Height (normalized, up=high)", fontsize=11)
             ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
@@ -81,51 +99,61 @@ def _graph_right_wrist_height(df: pd.DataFrame, out_dir: Path) -> "Path | None":
         logger.info(f"[graph_generator] Saved: {out_path}")
         return out_path
     except Exception as exc:
-        logger.warning(f"[graph_generator] right_wrist_height 生成失敗: {exc}")
+        logger.warning(f"[graph_generator] {gname} 生成失敗: {exc}")
         return None
 
 
-# ── グラフ B: 右肩・右肘・右手首の2D軌跡 ────────────────────────────────────
-def _graph_right_arm_trajectory(df: pd.DataFrame, out_dir: Path) -> "Path | None":
-    """right_arm_trajectory.png を生成して Path を返す。失敗時は None。"""
+# ── グラフ B: 肩・肘・手首の2D軌跡（利き腕対応）────────────────────────────
+
+def _graph_arm_trajectory(
+    df: "pd.DataFrame",
+    out_dir: Path,
+    side: str,
+) -> "Path | None":
+    """{side}_arm_trajectory.png を生成して Path を返す。失敗時は None。
+
+    Args:
+        df: pose_landmarks の DataFrame
+        out_dir: 出力先ディレクトリ
+        side: "right" または "left"
+    """
+    label = side.capitalize()
     cols = [
-        "right_shoulder_x", "right_shoulder_y",
-        "right_elbow_x",    "right_elbow_y",
-        "right_wrist_x",    "right_wrist_y",
+        f"{side}_shoulder_x", f"{side}_shoulder_y",
+        f"{side}_elbow_x",    f"{side}_elbow_y",
+        f"{side}_wrist_x",    f"{side}_wrist_y",
     ]
-    if not _require_cols(df, cols, "right_arm_trajectory"):
+    gname = f"{side}_arm_trajectory"
+    if not _require_cols(df, cols, gname):
         return None
     try:
-        out_path = out_dir / "right_arm_trajectory.png"
-        # 有効フレームのみ (visibility > 0.3 を想定: 列があれば使う)
+        out_path = out_dir / f"{gname}.png"
         mask = pd.Series([True] * len(df), index=df.index)
         for col in cols:
             mask &= df[col].notna()
         sub = df[mask].copy()
 
         # y を反転（MediaPipe: 上=0→表示上も上）
-        sh_x, sh_y = sub["right_shoulder_x"], 1 - sub["right_shoulder_y"]
-        el_x, el_y = sub["right_elbow_x"],    1 - sub["right_elbow_y"]
-        wr_x, wr_y = sub["right_wrist_x"],    1 - sub["right_wrist_y"]
+        sh_x, sh_y = sub[f"{side}_shoulder_x"], 1 - sub[f"{side}_shoulder_y"]
+        el_x, el_y = sub[f"{side}_elbow_x"],    1 - sub[f"{side}_elbow_y"]
+        wr_x, wr_y = sub[f"{side}_wrist_x"],    1 - sub[f"{side}_wrist_y"]
 
         with plt.style.context(_STYLE):
-            fig, ax = plt.subplots(figsize=(_FIG_H, _FIG_H), dpi=_FIG_DPI)  # 正方形
+            fig, ax = plt.subplots(figsize=(_FIG_H, _FIG_H), dpi=_FIG_DPI)
 
             n = len(sub)
-            # 時間に沿って色変化（薄→濃）
             cmap = plt.get_cmap("Blues")
             for i in range(n - 1):
                 alpha = 0.3 + 0.7 * i / max(n - 1, 1)
-                ax.plot(sh_x.iloc[i:i+2], sh_y.iloc[i:i+2], color=cmap(0.4 + 0.5 * i / max(n-1,1)), alpha=alpha, linewidth=1.2)
-                ax.plot(el_x.iloc[i:i+2], el_y.iloc[i:i+2], color=plt.get_cmap("Oranges")(0.4 + 0.5 * i / max(n-1,1)), alpha=alpha, linewidth=1.2)
-                ax.plot(wr_x.iloc[i:i+2], wr_y.iloc[i:i+2], color=plt.get_cmap("Greens")(0.4 + 0.5 * i / max(n-1,1)), alpha=alpha, linewidth=1.2)
+                frac  = 0.4 + 0.5 * i / max(n - 1, 1)
+                ax.plot(sh_x.iloc[i:i+2], sh_y.iloc[i:i+2], color=cmap(frac), alpha=alpha, linewidth=1.2)
+                ax.plot(el_x.iloc[i:i+2], el_y.iloc[i:i+2], color=plt.get_cmap("Oranges")(frac), alpha=alpha, linewidth=1.2)
+                ax.plot(wr_x.iloc[i:i+2], wr_y.iloc[i:i+2], color=plt.get_cmap("Greens")(frac),  alpha=alpha, linewidth=1.2)
 
-            # 凡例用ダミー
             ax.plot([], [], color="#2563eb", label="Shoulder")
             ax.plot([], [], color="#ea580c", label="Elbow")
             ax.plot([], [], color="#16a34a", label="Wrist")
 
-            # スタート/エンドマーカー
             ax.scatter([sh_x.iloc[0], el_x.iloc[0], wr_x.iloc[0]],
                        [sh_y.iloc[0], el_y.iloc[0], wr_y.iloc[0]],
                        color="gray", s=30, zorder=5, label="Start")
@@ -133,7 +161,7 @@ def _graph_right_arm_trajectory(df: pd.DataFrame, out_dir: Path) -> "Path | None
                        [sh_y.iloc[-1], el_y.iloc[-1], wr_y.iloc[-1]],
                        color="red", s=30, zorder=5, label="End")
 
-            ax.set_title("Right Arm 2D Trajectory", fontsize=14, fontweight="bold", pad=12)
+            ax.set_title(f"{label} Arm 2D Trajectory", fontsize=14, fontweight="bold", pad=12)
             ax.set_xlabel("X (normalized, right=1)", fontsize=10)
             ax.set_ylabel("Y (normalized, up=1)", fontsize=10)
             ax.set_xlim(0, 1)
@@ -147,7 +175,7 @@ def _graph_right_arm_trajectory(df: pd.DataFrame, out_dir: Path) -> "Path | None
         logger.info(f"[graph_generator] Saved: {out_path}")
         return out_path
     except Exception as exc:
-        logger.warning(f"[graph_generator] right_arm_trajectory 生成失敗: {exc}")
+        logger.warning(f"[graph_generator] {gname} 生成失敗: {exc}")
         return None
 
 
@@ -225,6 +253,9 @@ def generate_graphs_for_job(job_dir: Path) -> List[Path]:
     """
     ジョブディレクトリの CSV からグラフ画像を生成し、report/graphs/ に保存する。
 
+    customer_info.json の dominant_hand に応じて利き腕側のグラフを生成する。
+    dominant_hand が "left" なら左腕、それ以外（"right" / "unknown" / ファイルなし）は右腕。
+
     Args:
         job_dir: ジョブのルートディレクトリ（例: jobs/20260508_070156_518a）
 
@@ -233,7 +264,22 @@ def generate_graphs_for_job(job_dir: Path) -> List[Path]:
     """
     job_dir = Path(job_dir)
 
-    # CSV 検索: report/ > output/ > job_dir/
+    # ─ dominant_hand を customer_info.json から取得 ─────────────────────────
+    dominant_hand: str = "right"
+    ci_path = job_dir / "customer_info.json"
+    if ci_path.exists():
+        try:
+            ci: dict = json.loads(ci_path.read_text(encoding="utf-8"))
+            hand = (ci.get("dominant_hand") or "right").strip().lower()
+            if hand == "left":
+                dominant_hand = "left"
+        except Exception as exc:
+            logger.warning(
+                "[graph_generator] customer_info.json 読み込み失敗（right を使用）: %s", exc
+            )
+    logger.info("[graph_generator] dominant_hand=%s  job=%s", dominant_hand, job_dir.name)
+
+    # ─ CSV 検索: report/ > output/ > job_dir/ ──────────────────────────────
     csv_path: "Path | None" = None
     for candidate in [
         job_dir / "report" / "pose_landmarks.csv",
@@ -261,14 +307,19 @@ def generate_graphs_for_job(job_dir: Path) -> List[Path]:
         return []
 
     generated: List[Path] = []
-    for fn in (
-        _graph_right_wrist_height,
-        _graph_right_arm_trajectory,
-        _graph_torso_center_trajectory,
+
+    # 利き腕依存グラフ（A / B）
+    for result in (
+        _graph_wrist_height(df, out_dir, dominant_hand),
+        _graph_arm_trajectory(df, out_dir, dominant_hand),
     ):
-        result = fn(df, out_dir)
         if result is not None:
             generated.append(result)
+
+    # 左右共通グラフ（C）
+    result = _graph_torso_center_trajectory(df, out_dir)
+    if result is not None:
+        generated.append(result)
 
     logger.info(f"[graph_generator] {len(generated)}/3 グラフ生成完了: {out_dir}")
     return generated
