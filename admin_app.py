@@ -3731,7 +3731,7 @@ with tab_queue:
             "JVA_LOG_DIR":    str(_cfg.LOG_DIR),
             "JVA_UPLOAD_DIR": str(_cfg.UPLOAD_DIR),
         }
-        _path_status = {k: ("✅ 存在" if __import__("pathlib").Path(v).exists() else "⚠️ 未作成") for k, v in _path_data.items()}
+        _path_status = {k: ("✅ 存在" if Path(v).exists() else "⚠️ 未作成") for k, v in _path_data.items()}
         st.table(
             {
                 "環境変数": list(_path_data.keys()),

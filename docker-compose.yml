@@ -34,6 +34,7 @@ services:
       - ./outputs:/app/outputs
       - ./logs:/app/logs
       - ./uploads:/app/uploads
+      - ./jobs:/app/jobs
     env_file:
       - .env
     environment:
@@ -69,6 +70,7 @@ services:
       - ./outputs:/app/outputs
       - ./logs:/app/logs
       - ./uploads:/app/uploads
+      - ./jobs:/app/jobs
     env_file:
       - .env
     environment:
@@ -78,8 +80,6 @@ services:
       JVA_LOG_DIR: /app/logs
       JVA_UPLOAD_DIR: /app/uploads
       JVA_QUEUE_DIR: /app/data/queue
-    depends_on:
-      - api
 
   # ── バックグラウンドワーカー ──────────────────────────────────────────────────
   worker:
@@ -94,6 +94,7 @@ services:
       - ./outputs:/app/outputs
       - ./logs:/app/logs
       - ./uploads:/app/uploads
+      - ./jobs:/app/jobs
     env_file:
       - .env
     environment:
@@ -103,8 +104,6 @@ services:
       JVA_LOG_DIR: /app/logs
       JVA_UPLOAD_DIR: /app/uploads
       JVA_QUEUE_DIR: /app/data/queue
-    depends_on:
-      - api
 
   # ── Redis（将来用 — Phase 8 では未使用） ──────────────────────────────────────
   # redis:

@@ -23,19 +23,26 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 
+# テスト間で汚染しないよう一元管理するキーリスト
+_TRACKED_ENV_KEYS = [
+    "JVA_ENV", "JVA_APP_NAME", "JVA_DATA_DIR", "JVA_JOBS_DIR", "JVA_QUEUE_DIR",
+    "JVA_LOG_DIR", "JVA_UPLOAD_DIR", "JVA_OUTPUT_DIR", "JVA_COMPARISONS_DIR",
+    "JVA_API_KEY", "JVA_BUCKET", "JVA_DEBUG",
+    "JVA_ENABLE_INTAKE_API", "JVA_ENABLE_JOBS_API",
+    "JVA_WORKER_POLL_INTERVAL_SECONDS", "JVA_WORKER_MAX_RETRIES",
+    "JVA_QUEUE_BACKEND", "JVA_ADMIN_PORT", "JVA_ADMIN_PASSWORD",
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 class TestConfig(unittest.TestCase):
     """src/config.py のテスト"""
 
     def setUp(self) -> None:
         """テストごとに config モジュールをリロードして環境変数の影響を隔離する。"""
-        # 環境変数をクリア（テスト用）
+        # 全追跡キーを退避してから削除（前テストの残留を防ぐ）
         self._saved_env: dict[str, str] = {}
-        for key in [
-            "JVA_ENV", "JVA_DATA_DIR", "JVA_JOBS_DIR", "JVA_QUEUE_DIR",
-            "JVA_LOG_DIR", "JVA_UPLOAD_DIR", "JVA_OUTPUT_DIR",
-            "JVA_API_KEY", "JVA_BUCKET", "JVA_DEBUG",
-        ]:
+        for key in _TRACKED_ENV_KEYS:
             if key in os.environ:
                 self._saved_env[key] = os.environ.pop(key)
 
@@ -46,7 +53,10 @@ class TestConfig(unittest.TestCase):
         self.cfg = cfg
 
     def tearDown(self) -> None:
-        """テスト後に環境変数を復元する。"""
+        """テスト後に環境変数を完全に元通りにする。"""
+        # テスト中に設定された全追跡キーを削除してからオリジナルを復元
+        for key in _TRACKED_ENV_KEYS:
+            os.environ.pop(key, None)
         for key, val in self._saved_env.items():
             os.environ[key] = val
 

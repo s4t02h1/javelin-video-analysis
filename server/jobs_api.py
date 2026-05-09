@@ -56,10 +56,11 @@ from src.queue_manager import (
 logger = logging.getLogger("jva.jobs_api")
 
 # ── 設定 ─────────────────────────────────────────────────────────────────────
-_API_KEY: str = os.getenv("JVA_API_KEY", "")
+# _API_KEY はモジュールロード時の警告のみに使用。
+# 認証チェックは毎回 os.getenv() で読む（テスト・再設定に対応）。
 _JOBS_API_ENABLED: bool = os.getenv("JVA_ENABLE_JOBS_API", "true").lower() == "true"
 
-if not _API_KEY:
+if not os.getenv("JVA_API_KEY", ""):
     logger.warning(
         "[jobs_api] JVA_API_KEY が未設定です。本番環境では必ず設定してください。"
     )
@@ -77,16 +78,18 @@ def _verify_api_key(
     if not _JOBS_API_ENABLED:
         raise HTTPException(status_code=503, detail="Jobs API は無効です。")
 
-    if not _API_KEY:
+    # 毎回 os.getenv() を呼ぶことで、モジュールロード後の環境変数変更にも対応する
+    _key = os.getenv("JVA_API_KEY", "")
+    if not _key:
         logger.warning("[jobs_api] 開発モード: APIキー認証をスキップしました。")
         return
 
-    if x_jva_api_key and secrets.compare_digest(x_jva_api_key, _API_KEY):
+    if x_jva_api_key and secrets.compare_digest(x_jva_api_key, _key):
         return
 
     if authorization:
         parts = authorization.split(" ", 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer" and secrets.compare_digest(parts[1], _API_KEY):
+        if len(parts) == 2 and parts[0].lower() == "bearer" and secrets.compare_digest(parts[1], _key):
             return
 
     logger.warning("[jobs_api] 認証失敗")

@@ -11,7 +11,7 @@
 #   GUI 機能は不要なため opencv-python-headless に差し替える。
 # ──────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.11-slim AS base
+FROM python:3.11-slim
 
 # ── ビルド時引数 ──────────────────────────────────────────────────────────────
 ARG DEBIAN_FRONTEND=noninteractive
@@ -34,16 +34,17 @@ WORKDIR /app
 COPY requirements.txt ./
 
 # opencv-python の代わりに headless 版を使う（GUI 不要）
-RUN pip install --no-cache-dir \
-        opencv-python-headless \
-    && pip install --no-cache-dir -r requirements.txt \
+# requirements.txt の opencv-python を headless に置き換えてからインストール
+RUN sed 's/^opencv-python>=/opencv-python-headless>=/g' requirements.txt \
+        > /tmp/requirements-docker.txt \
+    && pip install --no-cache-dir -r /tmp/requirements-docker.txt \
     && pip cache purge
 
 # ── アプリケーションコードのコピー ────────────────────────────────────────────
 COPY . .
 
 # ── 永続化ボリューム用ディレクトリの作成 ──────────────────────────────────────
-RUN mkdir -p /app/data /app/outputs /app/logs /app/uploads
+RUN mkdir -p /app/data /app/outputs /app/logs /app/uploads /app/jobs
 
 # ── 非rootユーザー化 ──────────────────────────────────────────────────────────
 RUN groupadd --gid 1001 jva \
