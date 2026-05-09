@@ -37,17 +37,6 @@ logger = logging.getLogger("jva.annotation.exporter")
 _MODULE_DIR = Path(__file__).resolve().parent   # src/annotation/
 _REPO_ROOT  = _MODULE_DIR.parent.parent          # project root
 
-# エクスポートから除外する個人情報フィールド
-_EXCLUDED_FIELDS = {
-    "source_video_path",
-    "schema_version",
-}
-
-# anonymous_only の場合に除外するフィールド（追加で匿名化）
-_ANON_ONLY_EXCLUDED = {
-    "video_id",
-    "comparison_id",
-}
 
 
 def _load_config() -> Dict[str, Any]:
@@ -135,9 +124,8 @@ def _build_export_record(ann: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, 
     record["video_quality_level"]       = ann.get("video_quality_level", "unknown")
     record["consent_for_training_data"] = consent
 
-    # privacy_flags は概要として保持（詳細は除外）
-    safe_flags = [f for f in flags if "personal" not in f.lower()]
-    record["privacy_flags"]  = safe_flags
+    # privacy_flags はコンテンツ記述フラグ（個人識別情報ではない）— そのまま出力
+    record["privacy_flags"]  = flags
     record["export_allowed"] = True
 
     # ── フェーズラベルのフラット化 ────────────────────────────────────────────
@@ -161,12 +149,6 @@ def _build_export_record(ann: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, 
         record[f"event_{event_name}_time_sec"] = el.get("time_sec")
         record[f"event_{event_name}_source"]   = el.get("source", "unknown")
         record[f"event_{event_name}_reviewed"] = el.get("reviewed", False)
-
-    # ── 便利フラット化（よく使うキー） ───────────────────────────────────────
-    record["release_frame"]         = phase_labels.get("release", {}).get("frame")
-    record["block_frame"]           = phase_labels.get("block", {}).get("frame")
-    record["cross_step_start_frame"] = phase_labels.get("cross_step", {}).get("start_frame")
-    record["cross_step_end_frame"]   = phase_labels.get("cross_step", {}).get("end_frame")
 
     return record
 

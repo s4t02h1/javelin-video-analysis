@@ -297,7 +297,10 @@ def _step_create_annotation_draft(job_id: str, job_dir: Path) -> None:
 
         from src.annotation.manager import create_annotation_draft_for_job
         out = create_annotation_draft_for_job(job_dir)
-        logger.info("[worker] annotation draft 作成完了: %s job_id=%s", out.name, job_id)
+        if out is not None:
+            logger.info("[worker] annotation draft 作成完了: %s job_id=%s", out.name, job_id)
+        else:
+            logger.info("[worker] annotation draft 作成スキップ（無効または既存）: job_id=%s", job_id)
     except Exception as e:
         logger.warning("[worker] annotation draft 作成失敗（継続）: job_id=%s error=%s", job_id, e)
 

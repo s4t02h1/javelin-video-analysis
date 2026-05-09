@@ -214,14 +214,11 @@ try:
         PRIVACY_FLAG_LABELS,
         LABEL_SOURCE_LABELS,
         create_annotation_draft_for_job,
-        generate_annotation_from_job,
         load_annotation,
         list_annotations,
         find_annotation_for_job,
-        save_annotation,
         update_annotation,
         set_annotation_status,
-        archive_annotation,
         compute_dataset_stats,
     )
     from src.annotation.exporter import export_annotations

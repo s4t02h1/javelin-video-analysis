@@ -118,14 +118,6 @@ PRIVACY_FLAG_LABELS: Dict[str, str] = {
     "csv_features_only":         "動画ファイルは使わずCSV特徴量のみ利用可",
 }
 
-LABEL_SOURCES: List[str] = [
-    "auto",          # 自動推定のみ
-    "manual",        # 手動入力
-    "auto_corrected", # 自動推定後に手動修正
-    "imported",      # 外部インポート
-    "unknown",       # 不明
-]
-
 LABEL_SOURCE_LABELS: Dict[str, str] = {
     "auto":           "🤖 自動推定",
     "manual":         "✏️ 手動",
@@ -133,9 +125,6 @@ LABEL_SOURCE_LABELS: Dict[str, str] = {
     "imported":       "📥 インポート",
     "unknown":        "❓ 不明",
 }
-
-EXPORT_STATUSES: List[str] = ["not_exported", "exported", "excluded"]
-
 
 # ── アノテーションID生成 ──────────────────────────────────────────────────────
 
@@ -412,7 +401,6 @@ def _phase_source(
     phase_key: str,
     corrections: Dict[str, Any],
     detection_phase: Optional[Dict[str, Any]],
-    min_confidence: float = 0.70,
 ) -> str:
     """フェーズのデータソース（auto / manual / auto_corrected）を判定する。"""
     corr = corrections.get(phase_key)
@@ -514,7 +502,12 @@ def generate_annotation_from_job(
 
     # ── 基本情報 ──────────────────────────────────────────────────────────────
     job_id        = job_data.get("job_id") or job_dir.name
-    dominant_arm  = customer_info.get("dominant_hand") or detection_result.get("dominant_arm") or "right"
+    dominant_arm  = (
+        customer_info.get("dominant_arm")
+        or customer_info.get("dominant_hand")
+        or detection_result.get("dominant_arm")
+        or "right"
+    )
     fps           = phase_frames_data.get("fps") or quality_report.get("fps")
     total_frames  = phase_frames_data.get("total_frames") or quality_report.get("total_frames")
     duration_sec  = quality_report.get("duration_sec")
@@ -524,7 +517,8 @@ def generate_annotation_from_job(
 
     # ── consent（SNSと教師データは分ける） ────────────────────────────────────
     default_consent = cfg.get("default_consent_for_training_data", "unknown")
-    sns_perm = customer_info.get("sns_permission", "unknown")
+    # customer_info.json の SNS 許可フィールド名は "permission_for_social_post"
+    sns_perm = customer_info.get("permission_for_social_post", "unknown")
     # 教師データ利用許可は受付情報に training_data_consent キーがあれば使用
     training_consent = customer_info.get("training_data_consent", default_consent)
 
@@ -667,12 +661,13 @@ def generate_annotation_from_job(
     return ann
 
 
-def create_annotation_draft_for_job(job_dir: Path) -> Path:
+def create_annotation_draft_for_job(job_dir: Path) -> Optional[Path]:
     """
     ジョブディレクトリから annotation draft を作成して保存し、パスを返す。
 
-    すでにそのジョブの annotation が存在する場合は上書きせずスキップする。
-    エラーが発生しても例外を外に出さない（worker 安全設計）。
+    すでにそのジョブの annotation が存在する場合は上書きせずスキップして
+    既存の annotation.json パスを返す。
+    機能が無効またはエラーの場合は None を返す（例外は外に出さない）。
 
     Parameters
     ----------
@@ -681,8 +676,8 @@ def create_annotation_draft_for_job(job_dir: Path) -> Path:
 
     Returns
     -------
-    Path
-        annotation.json のパス
+    Path or None
+        annotation.json のパス。無効化またはエラーの場合は None。
     """
     job_dir = Path(job_dir)
 
@@ -691,8 +686,7 @@ def create_annotation_draft_for_job(job_dir: Path) -> Path:
         cfg = _load_config()
         if not cfg.get("enabled", True):
             logger.info("[annotation] 設定で無効化されています: %s", job_dir.name)
-            # ダミーパスを返す（呼び出し元が存在確認することを想定）
-            return _annotations_root() / "disabled"
+            return None
 
         job_id = job_dir.name
 
@@ -710,8 +704,7 @@ def create_annotation_draft_for_job(job_dir: Path) -> Path:
 
     except Exception as e:
         logger.error("[annotation] ドラフト作成エラー: %s — %s", job_dir.name, e)
-        # エラーでも呼び出し元に例外を伝播しない
-        return _annotations_root() / "error"
+        return None
 
 
 # ── データセット統計 ──────────────────────────────────────────────────────────
