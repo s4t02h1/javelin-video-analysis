@@ -59,7 +59,7 @@ def generate_payment_request(
     lines.append(f"ご希望プラン：{plan_label}")
     lines.append(f"料　　　　金：{final_price_jpy:,} 円")
     if order_id:
-        lines.append(f"注　文　番　号：{order_id}")
+        lines.append(f"注文番号　　：{order_id}")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("")
 

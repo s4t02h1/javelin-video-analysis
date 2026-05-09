@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -38,16 +38,13 @@ logger = logging.getLogger("jva.order")
 
 _MODULE_DIR = Path(__file__).resolve().parent   # src/
 _REPO_ROOT  = _MODULE_DIR.parent                # project root
-_DEFAULT_ORDERS_DIR = _REPO_ROOT / "data" / "orders"
 
 
 def _orders_root() -> Path:
-    """環境変数 JVA_ORDERS_DIR が設定されていればそちらを使う。"""
-    d = os.getenv("JVA_ORDERS_DIR", "").strip()
-    if d:
-        p = Path(d)
-        return p if p.is_absolute() else (_REPO_ROOT / p)
-    return _DEFAULT_ORDERS_DIR
+    """注文データルートを返す。JVA_DATA_DIR / JVA_ORDERS_DIR 両方を尊重するため
+    src.config.cfg.ORDERS_DIR に委譲する。"""
+    from src.config import cfg  # lazy import — circular を避ける
+    return cfg.ORDERS_DIR
 
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
@@ -108,6 +105,7 @@ CANCEL_STATUSES: List[str] = [
     "none",      # キャンセルなし
     "requested", # キャンセル依頼あり
     "approved",  # キャンセル承認済み
+    "rejected",  # キャンセル不可（着手後等）
     "completed", # キャンセル完了
 ]
 
@@ -115,6 +113,7 @@ CANCEL_STATUS_LABELS: Dict[str, str] = {
     "none":      "—",
     "requested": "🔔 キャンセル依頼あり",
     "approved":  "✅ キャンセル承認済み",
+    "rejected":  "❌ キャンセル不可",
     "completed": "🚫 キャンセル完了",
 }
 
@@ -140,9 +139,12 @@ PAYMENT_METHOD_LABELS: Dict[str, str] = {
 # ── order_id 生成 ─────────────────────────────────────────────────────────────
 
 def generate_order_id() -> str:
-    """ORD_YYYYMMDD_HHMMSS_xxxx 形式のユニークな注文IDを生成する。"""
+    """ORD_YYYYMMDD_HHMMSS_xxxx 形式のユニークな注文IDを生成する。
+
+    サフィックスは secrets モジュールを使い推測困難にする。
+    """
     now = datetime.now()
-    suffix = "".join(random.choices("0123456789abcdef", k=4))
+    suffix = secrets.token_hex(2)   # 4文字の hex 文字列
     return now.strftime("ORD_%Y%m%d_%H%M%S") + f"_{suffix}"
 
 
