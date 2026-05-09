@@ -1353,3 +1353,177 @@ docker compose build && docker compose up -d
 
 詳細は [docs/deployment_guide.md](docs/deployment_guide.md) を参照してください。
 
+---
+
+## Phase 9: 課金・利用規約・正式サービス化準備
+
+Phase 9 では、解析サービスを「無料・試験運用の技術サービス」から「有償提供を視野に入れた正式サービス候補」に進化させる基盤を整備しました。
+
+> ⚠️ **Phase 9 では Stripe などの外部決済サービスは必須にしていません。**
+> まずは手動入金・手動確認による運用に対応しています。
+
+### 概要
+
+- 料金プランを YAML ファイルで一元管理
+- 注文・支払い・納品ステータスをファイルベースで管理
+- 管理画面に「💰 注文管理」タブを追加
+- 支払い依頼・支払い確認・キャンセル・返金のメッセージテンプレートを生成
+- 法務ドラフト（利用規約・プライバシーポリシー・特定商取引法表記・返金ポリシー・未成年ポリシー・免責事項）を追加
+
+### 1. 料金プラン（`configs/pricing_plans.yaml`）
+
+料金・プラン内容はこの1ファイルで一元管理します。コードに金額をハードコードしないでください。
+
+```yaml
+# 例
+full_report:
+  label: "フルレポート版"
+  price_jpy: 5000
+  payment_required: true
+  refund_policy: "解析着手後は原則返金不可。"
+  deliverables:
+    - "フルレポートPDF"
+    - ...
+```
+
+**既存の `configs/plans.yaml`（納品物構成）は壊れません。**
+`pricing_plans.yaml` は課金管理専用、`plans.yaml` は納品パッケージング専用として共存します。
+
+### 2. 注文・支払いステータス管理（`src/order_manager.py`）
+
+```python
+from src.order_manager import create_order, update_order, list_orders
+
+# 注文作成（価格は pricing_plans.yaml から自動取得）
+order = create_order("full_report", job_id="20260508_...", customer_label="山田太郎")
+
+# 支払いステータス更新
+update_order(order["order_id"], payment_status="paid", payment_reference="振込番号123")
+
+# 納品前チェック
+from src.order_manager import check_payment_before_delivery
+result = check_payment_before_delivery(order)
+# result["ok"] = False（未払いの場合）
+# result["warning"] = "⚠️ 支払いが未完了です..."
+```
+
+**保存先**: `data/orders/{order_id}/order.json`（`JVA_ORDERS_DIR` 環境変数で変更可能）
+
+#### 支払いステータス一覧
+
+| ステータス | 意味 |
+|---|---|
+| `unpaid` | 未払い |
+| `payment_requested` | 支払い依頼済み |
+| `paid` | 支払い確認済み |
+| `not_required` | 支払い不要（無料プラン） |
+| `refunded` | 返金済み |
+| `cancelled` | キャンセル済み |
+
+#### 納品ステータス一覧
+
+| ステータス | 意味 |
+|---|---|
+| `not_started` | 未着手 |
+| `in_progress` | 解析中 |
+| `ready` | 納品準備完了 |
+| `delivered` | 納品済み |
+| `archived` | 保管済み |
+
+### 3. 管理画面 — 注文管理タブ
+
+Streamlit 管理画面の「💰 注文管理」タブから：
+
+- 注文一覧（支払いステータス・納品ステータス・プランでフィルタリング）
+- 注文詳細・ステータス更新
+- 新規注文作成（job_id / intake_id / comparison_id との紐付け）
+- 支払い依頼メッセージ生成（コピー&貼り付け用）
+- 支払い確認（領収）メッセージ生成
+- 納品メッセージ生成
+- キャンセル・返金メッセージ生成
+- 正式サービス前チェックリスト
+
+### 4. 手動支払い管理の流れ
+
+```
+1. 申込受付（intake 作成 or 直接注文作成）
+2. 注文作成（プラン選択 → 価格自動設定）
+3. 支払い依頼メッセージをコピーして顧客に送付
+4. 入金確認 → 支払いステータスを "paid" に更新
+5. 解析実行（job 実行 → worker がキュー処理）
+6. 解析完了 → 納品メッセージをコピーして顧客に送付
+7. 納品ステータスを "delivered" に更新
+```
+
+### 5. 納品前支払い確認
+
+有料プランで `payment_status` が `paid` でない場合、管理画面で警告が表示されます。
+
+管理者判断でオーバーライドして納品することも可能ですが、その場合はログに記録されます（セキュリティ監査用）。
+
+### 6. 支払い方法
+
+Phase 9 で対応している支払い方法：
+
+| キー | 説明 |
+|---|---|
+| `manual_bank_transfer` | 銀行振込（手動確認） |
+| `paypay` | PayPay |
+| `cash` | 現金手渡し |
+| `free` | 無料（自動設定） |
+| `stripe` | Stripe（将来拡張用・Phase 9 では未連携） |
+
+### 7. 法務ドラフト（`docs/legal/`）
+
+> ⚠️ **これらはドラフトです。法律専門家（弁護士等）による確認前に正式公開しないでください。**
+
+| ファイル | 内容 |
+|---|---|
+| [terms_of_service_draft.md](docs/legal/terms_of_service_draft.md) | 利用規約 |
+| [privacy_policy_draft.md](docs/legal/privacy_policy_draft.md) | プライバシーポリシー |
+| [specified_commercial_transactions_draft.md](docs/legal/specified_commercial_transactions_draft.md) | 特定商取引法に基づく表記 |
+| [refund_cancel_policy_draft.md](docs/legal/refund_cancel_policy_draft.md) | 返金・キャンセルポリシー |
+| [minor_user_policy_draft.md](docs/legal/minor_user_policy_draft.md) | 未成年者利用ポリシー |
+| [disclaimer_draft.md](docs/legal/disclaimer_draft.md) | 免責事項 |
+
+### 8. 重要な注意（医療・競技指導の免責）
+
+本サービスは以下の立場を堅持します：
+
+- 動画から取得した姿勢推定データをもとにした**参考資料**である
+- 競技指導・医療診断・怪我の診断を**代替しない**
+- 解析結果は絶対評価ではなく、動画の画質・角度・服装・背景により精度が変わる
+- 練習内容や技術判断は指導者・専門家と相談する
+- 未成年利用の場合は保護者・指導者の確認を推奨する
+
+これらの文言はメッセージテンプレートの免責フッターに自動的に含まれます。
+
+### 9. 正式サービス前チェックリスト
+
+管理画面「💰 注文管理」タブの下部にチェックリストがあります。有償提供を開始する前に確認してください。主な確認項目：
+
+- [ ] 料金プランを確認した
+- [ ] 支払い方法を決定した
+- [ ] 法務文書を確認した（法律専門家による確認済み）
+- [ ] S3 の公開設定・Presigned URL 有効期限を確認した
+- [ ] ログに個人情報が出力されていないか確認した
+- [ ] 問い合わせ先を確定した
+
+### Phase 9 で追加・変更されたファイル
+
+| ファイル | 内容 |
+|---|---|
+| `configs/pricing_plans.yaml` | 課金プラン定義（新規） |
+| `src/order_manager.py` | 注文・支払い管理（新規） |
+| `src/message_templates.py` | メッセージテンプレート（新規） |
+| `src/config.py` | `ORDERS_DIR` プロパティ追加 |
+| `admin_app.py` | 「💰 注文管理」タブ追加 |
+| `docs/legal/terms_of_service_draft.md` | 利用規約ドラフト（新規） |
+| `docs/legal/privacy_policy_draft.md` | プライバシーポリシードラフト（新規） |
+| `docs/legal/specified_commercial_transactions_draft.md` | 特定商取引法表記ドラフト（新規） |
+| `docs/legal/refund_cancel_policy_draft.md` | 返金・キャンセルポリシードラフト（新規） |
+| `docs/legal/minor_user_policy_draft.md` | 未成年者利用ポリシードラフト（新規） |
+| `docs/legal/disclaimer_draft.md` | 免責事項ドラフト（新規） |
+| `tests/test_phase9.py` | Phase 9 ユニットテスト（新規） |
+
+

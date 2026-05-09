@@ -129,6 +129,55 @@ except ImportError:
     def is_s3_configured():  # type: ignore[misc]
         return False
 
+# ── Phase 9: 注文・支払い管理 ─────────────────────────────────────────────────
+try:
+    from src.order_manager import (
+        PAYMENT_STATUSES,
+        PAYMENT_STATUS_LABELS,
+        DELIVERY_STATUSES,
+        DELIVERY_STATUS_LABELS,
+        REFUND_STATUSES,
+        REFUND_STATUS_LABELS,
+        CANCEL_STATUSES,
+        CANCEL_STATUS_LABELS,
+        PAYMENT_METHODS,
+        PAYMENT_METHOD_LABELS,
+        create_order,
+        load_order,
+        update_order,
+        list_orders,
+        find_orders_for_job,
+        find_orders_for_intake,
+        find_orders_for_comparison,
+        load_pricing_plans,
+        get_plan,
+        get_price_jpy,
+        is_payment_required,
+        check_payment_before_delivery,
+    )
+    from src.message_templates import (
+        generate_payment_request,
+        generate_payment_receipt,
+        generate_delivery_with_payment_info,
+        generate_cancel_before_analysis,
+        generate_cancel_after_analysis,
+        generate_video_issue_response,
+        generate_refund_response,
+    )
+    _ORDER_AVAILABLE = True
+except ImportError as _order_ie:
+    _ORDER_AVAILABLE = False
+    PAYMENT_STATUSES = []
+    PAYMENT_STATUS_LABELS = {}
+    DELIVERY_STATUSES = []
+    DELIVERY_STATUS_LABELS = {}
+    REFUND_STATUSES = []
+    REFUND_STATUS_LABELS = {}
+    CANCEL_STATUSES = []
+    CANCEL_STATUS_LABELS = {}
+    PAYMENT_METHODS = []
+    PAYMENT_METHOD_LABELS = {}
+
 _RUN_PY = _REPO_ROOT / "run.py"
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
@@ -713,8 +762,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue, tab_orders = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理", "💰 注文管理"]
 )
 
 
@@ -3741,3 +3790,445 @@ with tab_queue:
         )
     except ImportError:
         st.info("src/config.py が見つかりません（Phase 8 モジュール未導入）。")
+
+
+# ─── Tab 8: 注文管理 ───────────────────────────────────────────────────────────
+
+with tab_orders:
+    st.header("💰 注文管理（Phase 9）")
+
+    if not _ORDER_AVAILABLE:
+        st.error("order_manager / message_templates モジュールが読み込めません。")
+        st.stop()
+
+    # ── 料金プランを読み込む ────────────────────────────────────────────────
+    _pricing_plans: dict = load_pricing_plans()
+
+    _ord_tab_list, _ord_tab_create, _ord_tab_msg = st.tabs(
+        ["📋 注文一覧", "➕ 注文作成", "✉️ メッセージ生成"]
+    )
+
+    # ─── 注文一覧 ─────────────────────────────────────────────────────────────
+    with _ord_tab_list:
+        st.subheader("注文一覧")
+
+        _orders_all = list_orders()
+        if not _orders_all:
+            st.info("注文がまだありません。「注文作成」タブから作成してください。")
+        else:
+            # フィルタ
+            _fc1, _fc2, _fc3 = st.columns(3)
+            with _fc1:
+                _filter_pay = st.selectbox(
+                    "支払いステータス",
+                    ["すべて"] + PAYMENT_STATUSES,
+                    key="ord_filter_pay",
+                    format_func=lambda x: "すべて" if x == "すべて" else PAYMENT_STATUS_LABELS.get(x, x),
+                )
+            with _fc2:
+                _filter_dlv = st.selectbox(
+                    "納品ステータス",
+                    ["すべて"] + DELIVERY_STATUSES,
+                    key="ord_filter_dlv",
+                    format_func=lambda x: "すべて" if x == "すべて" else DELIVERY_STATUS_LABELS.get(x, x),
+                )
+            with _fc3:
+                _filter_plan = st.selectbox(
+                    "プラン",
+                    ["すべて"] + list(_pricing_plans.keys()),
+                    key="ord_filter_plan",
+                    format_func=lambda x: "すべて" if x == "すべて" else (_pricing_plans.get(x, {}).get("label", x) if _pricing_plans else x),
+                )
+
+            # フィルタ適用
+            _orders_filtered = _orders_all
+            if _filter_pay != "すべて":
+                _orders_filtered = [o for o in _orders_filtered if o.get("payment_status") == _filter_pay]
+            if _filter_dlv != "すべて":
+                _orders_filtered = [o for o in _orders_filtered if o.get("delivery_status") == _filter_dlv]
+            if _filter_plan != "すべて":
+                _orders_filtered = [o for o in _orders_filtered if o.get("selected_plan") == _filter_plan]
+
+            st.caption(f"{len(_orders_filtered)} 件 / 全 {len(_orders_all)} 件")
+
+            # 一覧テーブル
+            _ord_rows = []
+            for _o in _orders_filtered:
+                _plan_key = _o.get("selected_plan", "")
+                _plan_label = (_pricing_plans.get(_plan_key, {}).get("label", _plan_key) if _pricing_plans else _plan_key)
+                _ord_rows.append({
+                    "注文ID":          _o.get("order_id", ""),
+                    "顧客ラベル":      _o.get("customer_label", ""),
+                    "プラン":          _plan_label,
+                    "金額(円)":        _o.get("final_price_jpy", 0),
+                    "支払い":          PAYMENT_STATUS_LABELS.get(_o.get("payment_status", ""), _o.get("payment_status", "")),
+                    "納品":            DELIVERY_STATUS_LABELS.get(_o.get("delivery_status", ""), _o.get("delivery_status", "")),
+                    "作成日":          _o.get("created_at", "")[:10],
+                    "job_id":          _o.get("job_id") or "",
+                    "intake_id":       _o.get("intake_id") or "",
+                })
+
+            if _ord_rows:
+                import pandas as _pd_ord
+                st.dataframe(_pd_ord.DataFrame(_ord_rows), use_container_width=True, hide_index=True)
+
+            # 注文詳細
+            st.divider()
+            st.subheader("注文詳細")
+            _ord_ids = [o.get("order_id", "") for o in _orders_filtered]
+            if _ord_ids:
+                _sel_ord_id = st.selectbox("注文を選択", _ord_ids, key="ord_select_detail")
+                if _sel_ord_id:
+                    try:
+                        _sel_ord = load_order(_sel_ord_id)
+                    except Exception as _e:
+                        st.error(f"注文の読み込みに失敗しました: {_e}")
+                        _sel_ord = None
+
+                    if _sel_ord:
+                        _plan_key_d = _sel_ord.get("selected_plan", "")
+                        _plan_info_d = _pricing_plans.get(_plan_key_d, {}) if _pricing_plans else {}
+                        _plan_label_d = _plan_info_d.get("label", _plan_key_d)
+
+                        # 納品前支払いチェック
+                        _pay_check = check_payment_before_delivery(_sel_ord)
+                        if not _pay_check["ok"]:
+                            st.warning(_pay_check["warning"])
+                        else:
+                            st.success("✅ 支払い状況: 納品可能な状態です。")
+
+                        # メトリクス表示
+                        _dm1, _dm2, _dm3, _dm4 = st.columns(4)
+                        _dm1.metric("支払いステータス", PAYMENT_STATUS_LABELS.get(_sel_ord.get("payment_status", ""), ""))
+                        _dm2.metric("納品ステータス", DELIVERY_STATUS_LABELS.get(_sel_ord.get("delivery_status", ""), ""))
+                        _dm3.metric("返金ステータス", REFUND_STATUS_LABELS.get(_sel_ord.get("refund_status", "none"), ""))
+                        _dm4.metric("最終金額", f"¥{_sel_ord.get('final_price_jpy', 0):,}")
+
+                        # ステータス更新
+                        with st.expander("🔧 ステータス更新", expanded=False):
+                            _uc1, _uc2 = st.columns(2)
+                            with _uc1:
+                                _new_pay_st = st.selectbox(
+                                    "支払いステータス変更",
+                                    PAYMENT_STATUSES,
+                                    index=PAYMENT_STATUSES.index(_sel_ord.get("payment_status", "unpaid")) if _sel_ord.get("payment_status", "unpaid") in PAYMENT_STATUSES else 0,
+                                    key=f"ord_pay_st_{_sel_ord_id}",
+                                    format_func=lambda x: PAYMENT_STATUS_LABELS.get(x, x),
+                                )
+                                _new_pay_method = st.selectbox(
+                                    "支払い方法",
+                                    PAYMENT_METHODS,
+                                    index=PAYMENT_METHODS.index(_sel_ord.get("payment_method", "manual_bank_transfer")) if _sel_ord.get("payment_method", "manual_bank_transfer") in PAYMENT_METHODS else 0,
+                                    key=f"ord_pay_method_{_sel_ord_id}",
+                                    format_func=lambda x: PAYMENT_METHOD_LABELS.get(x, x),
+                                )
+                                _new_pay_ref = st.text_input(
+                                    "支払い参照番号（振込番号・取引IDなど）",
+                                    value=_sel_ord.get("payment_reference", ""),
+                                    key=f"ord_pay_ref_{_sel_ord_id}",
+                                )
+                            with _uc2:
+                                _new_dlv_st = st.selectbox(
+                                    "納品ステータス変更",
+                                    DELIVERY_STATUSES,
+                                    index=DELIVERY_STATUSES.index(_sel_ord.get("delivery_status", "not_started")) if _sel_ord.get("delivery_status", "not_started") in DELIVERY_STATUSES else 0,
+                                    key=f"ord_dlv_st_{_sel_ord_id}",
+                                    format_func=lambda x: DELIVERY_STATUS_LABELS.get(x, x),
+                                )
+                                _new_rfnd_st = st.selectbox(
+                                    "返金ステータス変更",
+                                    REFUND_STATUSES,
+                                    index=REFUND_STATUSES.index(_sel_ord.get("refund_status", "none")) if _sel_ord.get("refund_status", "none") in REFUND_STATUSES else 0,
+                                    key=f"ord_rfnd_st_{_sel_ord_id}",
+                                    format_func=lambda x: REFUND_STATUS_LABELS.get(x, x),
+                                )
+
+                            _new_receipt_note = st.text_area(
+                                "領収メモ",
+                                value=_sel_ord.get("receipt_note", ""),
+                                key=f"ord_receipt_{_sel_ord_id}",
+                                height=80,
+                            )
+                            _new_admin_note = st.text_area(
+                                "管理者メモ",
+                                value=_sel_ord.get("admin_note", ""),
+                                key=f"ord_admin_note_{_sel_ord_id}",
+                                height=80,
+                            )
+
+                            # 納品前警告チェック（override 確認）
+                            _override_delivery = False
+                            if _new_dlv_st in ("ready", "delivered") and not _pay_check["ok"]:
+                                st.warning("⚠️ 未払いのまま納品ステータスを進めようとしています。管理者判断でオーバーライドできますが、ログに記録されます。")
+                                _override_delivery = st.checkbox("管理者判断でオーバーライドして納品する", key=f"ord_override_{_sel_ord_id}")
+
+                            if st.button("💾 ステータスを保存", key=f"ord_save_{_sel_ord_id}"):
+                                import logging as _log_ord
+                                _log_ord.getLogger("jva.admin").info(
+                                    "[order] ステータス更新: %s pay=%s dlv=%s refund=%s",
+                                    _sel_ord_id, _new_pay_st, _new_dlv_st, _new_rfnd_st,
+                                )
+                                if _override_delivery:
+                                    _log_ord.getLogger("jva.admin").warning(
+                                        "[order] 未払いオーバーライド: order_id=%s 管理者による納品強行", _sel_ord_id
+                                    )
+                                update_order(
+                                    _sel_ord_id,
+                                    payment_status=_new_pay_st,
+                                    payment_method=_new_pay_method,
+                                    payment_reference=_new_pay_ref,
+                                    delivery_status=_new_dlv_st,
+                                    refund_status=_new_rfnd_st,
+                                    receipt_note=_new_receipt_note,
+                                    admin_note=_new_admin_note,
+                                )
+                                st.success("✅ ステータスを更新しました。")
+                                st.rerun()
+
+                        with st.expander("📄 注文 JSON（生データ）", expanded=False):
+                            st.json(_sel_ord)
+
+    # ─── 注文作成 ─────────────────────────────────────────────────────────────
+    with _ord_tab_create:
+        st.subheader("新規注文作成")
+
+        if not _pricing_plans:
+            st.warning("configs/pricing_plans.yaml が読み込めませんでした。")
+
+        _cr_c1, _cr_c2 = st.columns(2)
+        with _cr_c1:
+            _cr_plan = st.selectbox(
+                "プラン",
+                list(_pricing_plans.keys()) if _pricing_plans else ["free_preview", "light", "data_sheet", "full_report", "comparison"],
+                key="ord_cr_plan",
+                format_func=lambda x: (_pricing_plans.get(x, {}).get("label", x) if _pricing_plans else x),
+            )
+            _cr_price = _pricing_plans.get(_cr_plan, {}).get("price_jpy", 0) if _pricing_plans else 0
+            _cr_pay_req = _pricing_plans.get(_cr_plan, {}).get("payment_required", False) if _pricing_plans else False
+
+            st.metric("定価 (円)", f"¥{_cr_price:,}")
+            _cr_discount = st.number_input("割引額 (円)", min_value=0, value=0, step=100, key="ord_cr_discount")
+            _cr_final = max(0, _cr_price - _cr_discount)
+            st.metric("最終金額 (円)", f"¥{_cr_final:,}")
+            st.caption(f"支払い必要: {'✅ はい' if _cr_pay_req else '🆓 不要（無料）'}")
+
+        with _cr_c2:
+            _cr_customer = st.text_input("顧客ラベル（氏名・ニックネームなど）", key="ord_cr_customer")
+            _cr_job_id = st.text_input("関連 job_id（任意）", key="ord_cr_job_id")
+            _cr_intake_id = st.text_input("関連 intake_id（任意）", key="ord_cr_intake_id")
+            _cr_comparison_id = st.text_input("関連 comparison_id（任意）", key="ord_cr_comparison_id")
+            _cr_method = st.selectbox(
+                "支払い方法",
+                PAYMENT_METHODS if PAYMENT_METHODS else ["manual_bank_transfer", "paypay", "free", "other"],
+                key="ord_cr_method",
+                format_func=lambda x: PAYMENT_METHOD_LABELS.get(x, x),
+            )
+
+        # プラン情報表示
+        if _pricing_plans and _cr_plan in _pricing_plans:
+            _plan_d = _pricing_plans[_cr_plan]
+            with st.expander(f"📋 プラン詳細: {_plan_d.get('label', _cr_plan)}", expanded=True):
+                st.caption(_plan_d.get("description", ""))
+                _delivs = _plan_d.get("deliverables", [])
+                if _delivs:
+                    for _dv in _delivs:
+                        st.write(f"・{_dv}")
+                st.caption(f"目安納期: {_plan_d.get('estimated_delivery_days', '—')}")
+                st.caption(f"返金ポリシー: {_plan_d.get('refund_policy', '—')}")
+
+        _cr_admin_note = st.text_area("管理者メモ（任意）", key="ord_cr_admin_note", height=60)
+        _cr_invoice_note = st.text_area("請求メモ（任意）", key="ord_cr_invoice_note", height=60)
+
+        if st.button("➕ 注文を作成", key="ord_cr_submit", type="primary"):
+            try:
+                _new_order = create_order(
+                    selected_plan=_cr_plan,
+                    intake_id=_cr_intake_id.strip() or None,
+                    job_id=_cr_job_id.strip() or None,
+                    comparison_id=_cr_comparison_id.strip() or None,
+                    customer_label=_cr_customer.strip(),
+                    discount_jpy=_cr_discount,
+                    invoice_note=_cr_invoice_note.strip(),
+                    admin_note=_cr_admin_note.strip(),
+                    payment_method=_cr_method,
+                )
+                st.success(f"✅ 注文を作成しました: {_new_order['order_id']}")
+                st.json(_new_order)
+            except Exception as _ce:
+                st.error(f"注文作成エラー: {_ce}")
+
+        # ── ジョブ履歴から注文作成 ────────────────────────────────────────
+        st.divider()
+        st.subheader("既存のジョブ・受付から注文作成")
+        st.caption("ジョブ一覧から job_id をコピーして上の「関連 job_id」欄に貼り付けてください。")
+        with st.expander("📋 最近のジョブ一覧（job_id 確認用）", expanded=False):
+            try:
+                _recent_jobs = list_jobs()[:15]
+                for _rj in _recent_jobs:
+                    _rj_orders = find_orders_for_job(_rj["job_id"])
+                    _rj_order_tag = f"（注文あり: {len(_rj_orders)}件）" if _rj_orders else "（注文なし）"
+                    st.code(f"{_rj['job_id']}  [{_rj.get('status','')}]  {_rj_order_tag}", language="")
+            except Exception:
+                st.info("ジョブ一覧の取得に失敗しました。")
+
+    # ─── メッセージ生成 ───────────────────────────────────────────────────────
+    with _ord_tab_msg:
+        st.subheader("メッセージ生成")
+
+        _orders_for_msg = list_orders()
+        if not _orders_for_msg:
+            st.info("注文がまだありません。「注文作成」タブから注文を作成してください。")
+        else:
+            _msg_order_ids = [o.get("order_id", "") for o in _orders_for_msg]
+            _msg_sel_id = st.selectbox("注文を選択", _msg_order_ids, key="ord_msg_sel")
+
+            if _msg_sel_id:
+                try:
+                    _msg_order = load_order(_msg_sel_id)
+                except Exception as _me:
+                    st.error(f"注文の読み込みに失敗: {_me}")
+                    _msg_order = None
+
+                if _msg_order:
+                    _msg_plan_key = _msg_order.get("selected_plan", "")
+                    _msg_plan_info = _pricing_plans.get(_msg_plan_key, {}) if _pricing_plans else {}
+                    _msg_plan_label = _msg_plan_info.get("label", _msg_plan_key)
+                    _msg_final_price = _msg_order.get("final_price_jpy", 0)
+                    _msg_customer = _msg_order.get("customer_label", "")
+
+                    _mt1, _mt2, _mt3, _mt4 = st.tabs(["📩 支払い依頼", "✅ 支払い確認", "📦 納品", "↩️ キャンセル・返金"])
+
+                    with _mt1:
+                        st.subheader("支払い依頼メッセージ")
+                        _pay_req_method = st.selectbox(
+                            "支払い方法",
+                            PAYMENT_METHODS if PAYMENT_METHODS else ["manual_bank_transfer", "paypay", "other"],
+                            index=PAYMENT_METHODS.index(_msg_order.get("payment_method", "manual_bank_transfer")) if PAYMENT_METHODS and _msg_order.get("payment_method", "manual_bank_transfer") in PAYMENT_METHODS else 0,
+                            key="msg_pay_req_method",
+                            format_func=lambda x: PAYMENT_METHOD_LABELS.get(x, x),
+                        )
+                        _pay_req_info = st.text_area(
+                            "支払い先情報（口座情報・PayPay IDなど。本物の口座番号は入力しないでください）",
+                            placeholder="例: 〇〇銀行 〇〇支店 普通 1234567 ヤリナゲ カイセキ",
+                            key="msg_pay_req_info",
+                            height=80,
+                        )
+                        _pay_req_extra = st.text_area("追加メモ（任意）", key="msg_pay_req_extra", height=60)
+                        _pay_req_msg = generate_payment_request(
+                            plan_label=_msg_plan_label,
+                            final_price_jpy=_msg_final_price,
+                            customer_label=_msg_customer,
+                            order_id=_msg_sel_id,
+                            payment_method=_pay_req_method,
+                            payment_info=_pay_req_info,
+                            extra_note=_pay_req_extra,
+                        )
+                        st.text_area("生成されたメッセージ（コピーして送付してください）", value=_pay_req_msg, height=350, key="msg_pay_req_out")
+
+                    with _mt2:
+                        st.subheader("支払い確認（領収）メッセージ")
+                        _receipt_extra = st.text_area("追加メモ（任意）", key="msg_receipt_extra", height=60)
+                        _receipt_msg = generate_payment_receipt(
+                            plan_label=_msg_plan_label,
+                            final_price_jpy=_msg_final_price,
+                            customer_label=_msg_customer,
+                            order_id=_msg_sel_id,
+                            receipt_note=_msg_order.get("receipt_note", ""),
+                            extra_note=_receipt_extra,
+                        )
+                        st.text_area("生成されたメッセージ", value=_receipt_msg, height=300, key="msg_receipt_out")
+
+                    with _mt3:
+                        st.subheader("納品メッセージ（支払い情報付き）")
+                        _dlv_url = st.text_input("納品URL（S3 presigned URL など）", key="msg_dlv_url")
+                        _dlv_extra = st.text_area("追加メモ（任意）", key="msg_dlv_extra", height=60)
+                        _dlv_msg = generate_delivery_with_payment_info(
+                            plan_label=_msg_plan_label,
+                            delivery_url=_dlv_url,
+                            customer_label=_msg_customer,
+                            order_id=_msg_sel_id,
+                            extra_note=_dlv_extra,
+                        )
+                        st.text_area("生成されたメッセージ", value=_dlv_msg, height=300, key="msg_dlv_out")
+
+                    with _mt4:
+                        st.subheader("キャンセル・返金メッセージ")
+                        _cancel_type = st.radio(
+                            "メッセージ種別",
+                            ["解析着手前のキャンセル", "解析着手後のキャンセル", "動画不備対応", "返金対応"],
+                            key="msg_cancel_type",
+                        )
+                        _cancel_extra = st.text_area("追加メモ（任意）", key="msg_cancel_extra", height=60)
+
+                        if _cancel_type == "解析着手前のキャンセル":
+                            _cancel_msg = generate_cancel_before_analysis(
+                                plan_label=_msg_plan_label,
+                                customer_label=_msg_customer,
+                                order_id=_msg_sel_id,
+                                extra_note=_cancel_extra,
+                            )
+                        elif _cancel_type == "解析着手後のキャンセル":
+                            _cancel_msg = generate_cancel_after_analysis(
+                                plan_label=_msg_plan_label,
+                                customer_label=_msg_customer,
+                                order_id=_msg_sel_id,
+                                extra_note=_cancel_extra,
+                            )
+                        elif _cancel_type == "動画不備対応":
+                            _issue_desc = st.text_area("不備の内容（例: 画質が低すぎる・角度が不適切など）", key="msg_issue_desc", height=80)
+                            _cancel_msg = generate_video_issue_response(
+                                customer_label=_msg_customer,
+                                order_id=_msg_sel_id,
+                                issue_description=_issue_desc,
+                                extra_note=_cancel_extra,
+                            )
+                        else:  # 返金対応
+                            _refund_approved = st.checkbox("返金を承認する", key="msg_refund_approved")
+                            _refund_amount = st.number_input("返金金額（円）", min_value=0, value=_msg_final_price, key="msg_refund_amount")
+                            _cancel_msg = generate_refund_response(
+                                customer_label=_msg_customer,
+                                order_id=_msg_sel_id,
+                                refund_approved=_refund_approved,
+                                refund_amount_jpy=_refund_amount,
+                                extra_note=_cancel_extra,
+                            )
+
+                        st.text_area("生成されたメッセージ", value=_cancel_msg, height=300, key="msg_cancel_out")
+
+    # ── 正式サービス前チェックリスト ─────────────────────────────────────────
+    st.divider()
+    st.subheader("📋 正式サービス前チェックリスト")
+    st.caption("有償提供を開始する前に以下の項目を確認してください。")
+
+    _checklist_items = [
+        ("料金プランを確認した（configs/pricing_plans.yaml）",       "chk_pricing"),
+        ("支払い方法を決定した",                                      "chk_payment_method"),
+        ("利用規約ドラフトを確認した（docs/legal/terms_of_service_draft.md）",         "chk_tos"),
+        ("プライバシーポリシードラフトを確認した（docs/legal/privacy_policy_draft.md）", "chk_privacy"),
+        ("特定商取引法表記ドラフトを確認した（docs/legal/specified_commercial_transactions_draft.md）", "chk_sctl"),
+        ("返金ポリシードラフトを確認した（docs/legal/refund_cancel_policy_draft.md）",  "chk_refund"),
+        ("未成年利用ポリシードラフトを確認した（docs/legal/minor_user_policy_draft.md）","chk_minor"),
+        ("免責事項ドラフトを確認した（docs/legal/disclaimer_draft.md）",               "chk_disclaimer"),
+        ("法律専門家による確認を受けた（ドラフトのまま公開しない）",  "chk_legal_review"),
+        ("S3 の公開設定・Presigned URL 有効期限を確認した",           "chk_s3"),
+        ("ログに個人情報・秘密情報が出力されていないか確認した",       "chk_log"),
+        ("SNS 掲載許可の管理フローを決めた",                          "chk_sns"),
+        ("問い合わせ先を決定した",                                     "chk_contact"),
+        ("解析結果が参考資料である旨を利用者に周知する方法を決めた",   "chk_disclaimer_notice"),
+        ("未成年者利用の保護者同意フローを決めた",                    "chk_minor_flow"),
+    ]
+
+    _all_checked = True
+    for _label, _key in _checklist_items:
+        _checked = st.checkbox(_label, key=f"service_checklist_{_key}")
+        if not _checked:
+            _all_checked = False
+
+    if _all_checked:
+        st.success("🎉 すべての項目を確認しました！")
+    else:
+        _unchecked = sum(1 for _, _k in _checklist_items if not st.session_state.get(f"service_checklist_{_k}", False))
+        st.info(f"残り {_unchecked} 項目を確認してください。")
+
+    st.caption("⚠️ 法務文書（docs/legal/ 以下）はドラフトです。正式公開前に法律専門家による確認が必要です。")
+

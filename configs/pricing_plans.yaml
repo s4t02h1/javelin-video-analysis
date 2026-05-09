@@ -1,0 +1,94 @@
+# configs/pricing_plans.yaml — Javelin Video Analysis 課金プラン定義 (Phase 9)
+#
+# 料金・プラン内容はこのファイルで一元管理します。
+# コード内に金額をハードコードしないでください。
+#
+# ⚠️  このファイルを変更した場合は、docs/legal/ の特定商取引法表記ドラフトも更新してください。
+#
+# フィールド説明:
+#   label                  : 表示名
+#   price_jpy              : 税込み価格（円）。0 = 無料
+#   description            : 短い説明文（管理画面・申込フォームに表示）
+#   deliverables           : 納品物リスト（日本語の説明）
+#   estimated_delivery_days: 目安納期
+#   payment_required       : true = 支払いが必要 / false = 無料
+#   refund_policy          : キャンセル・返金ポリシー（ユーザー向け短文）
+#
+# plans.yaml との関係:
+#   plans.yaml     → 納品物の内容（includes キー）で deliverable_packager.py が参照
+#   pricing_plans.yaml → 課金・支払い管理で order_manager.py / 管理画面が参照
+#   同一プランキーを使うことで双方向に参照できます。
+
+free_preview:
+  label: "無料プレビュー"
+  price_jpy: 0
+  description: "解析の雰囲気を確認したい方向け。代表フレームと簡単な動画を納品します。"
+  deliverables:
+    - "解析動画の一部（プレビュー）"
+    - "代表フレーム画像"
+    - "解析動画の見方PDF"
+  estimated_delivery_days: "数日〜1週間程度"
+  payment_required: false
+  refund_policy: "無料のため返金対象外"
+
+light:
+  label: "ライト版"
+  price_jpy: 1000
+  description: "選手本人がスマホで確認しやすい簡易版。"
+  deliverables:
+    - "選手向けサマリーPDF"
+    - "代表フレームシートPDF"
+    - "グラフ解説PDF"
+    - "解析動画"
+    - "解析動画の見方PDF"
+  estimated_delivery_days: "数日〜1週間程度"
+  payment_required: true
+  refund_policy: "解析着手前のみキャンセル可。着手後は原則返金不可。"
+
+data_sheet:
+  label: "データシート版"
+  price_jpy: 3000
+  description: "PDFとデータをまとめて受け取りたい方向け。"
+  deliverables:
+    - "選手向けサマリーPDF"
+    - "グラフ解説PDF"
+    - "代表フレームシートPDF"
+    - "CSV（姿勢推定データ）"
+    - "JSON（解析サマリー）"
+    - "全解析動画"
+    - "解析動画の見方PDF"
+  estimated_delivery_days: "数日〜1週間程度"
+  payment_required: true
+  refund_policy: "解析着手前のみキャンセル可。着手後は原則返金不可。"
+
+full_report:
+  label: "フルレポート版"
+  price_jpy: 5000
+  description: "詳細に振り返りたい選手・コーチ向け。"
+  deliverables:
+    - "フルレポートPDF"
+    - "選手向けサマリーPDF"
+    - "コーチ向けレビューシートPDF"
+    - "グラフ解説PDF"
+    - "代表フレームシートPDF"
+    - "全解析動画"
+    - "CSV（姿勢推定データ）"
+    - "JSON（解析サマリー）"
+    - "解析動画の見方PDF"
+  estimated_delivery_days: "1週間程度"
+  payment_required: true
+  refund_policy: "解析着手後は原則返金不可。"
+
+comparison:
+  label: "2動画比較版"
+  price_jpy: 5000
+  description: "改善前後・成功投てき／失敗投てきなど2本の動画を比較したい方向け。"
+  deliverables:
+    - "比較レポートPDF"
+    - "フェーズ別比較画像"
+    - "比較グラフ"
+    - "全解析動画（2本分）"
+    - "解析動画の見方PDF"
+  estimated_delivery_days: "1週間程度"
+  payment_required: true
+  refund_policy: "解析着手後は原則返金不可。"

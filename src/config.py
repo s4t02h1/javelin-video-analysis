@@ -88,6 +88,15 @@ class _Config:
             return p if p.is_absolute() else (_REPO_ROOT / p)
         return self.DATA_DIR / "comparisons"
 
+    @property
+    def ORDERS_DIR(self) -> Path:
+        """注文データディレクトリ (Phase 9)。JVA_ORDERS_DIR で上書き可能。"""
+        custom = os.getenv("JVA_ORDERS_DIR", "").strip()
+        if custom:
+            p = Path(custom)
+            return p if p.is_absolute() else (_REPO_ROOT / p)
+        return self.DATA_DIR / "orders"
+
     # ── API ───────────────────────────────────────────────────────────────────
     @property
     def API_KEY(self) -> str:
