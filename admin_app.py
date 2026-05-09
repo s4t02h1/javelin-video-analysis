@@ -194,6 +194,15 @@ def _read_video_bytes(path: Path) -> bytes | None:
         return None
 
 
+@st.cache_data(max_entries=20, show_spinner=False)
+def _read_file_cached(path_str: str, mtime_ns: int) -> bytes:
+    """ファイルをキャッシュ付きで読み込む。
+
+    mtime_ns を引数に含めることで、ファイル更新時に自動的にキャッシュが無効化される。
+    """
+    return Path(path_str).read_bytes()
+
+
 # 無料プレビュー動画と判定するキーワード
 _PREVIEW_KEYWORDS = {"skeleton", "trail", "heatmap", "hud", "stickman", "vectors", "gaming"}
 
@@ -952,11 +961,11 @@ with tab_history:
                                 try:
                                     st.download_button(
                                         label=f"⬇ {_fp.name}",
-                                        data=_fp.read_bytes(),
+                                        data=_read_file_cached(str(_fp), _fp.stat().st_mtime_ns),
                                         file_name=_fp.name, mime="image/jpeg",
                                         key=f"dl_fr_{_fp.name}_{job['job_id']}",
                                     )
-                                except OSError:
+                                except Exception:
                                     pass
 
             # ══════════════════════════════════════════════════════════════════
@@ -983,7 +992,8 @@ with tab_history:
                                 st.dataframe(_df, use_container_width=True)
                                 st.download_button(
                                     label=f"⬇ {_cp.name}（全フレーム）",
-                                    data=_cp.read_bytes(), file_name=_cp.name,
+                                    data=_read_file_cached(str(_cp), _cp.stat().st_mtime_ns),
+                                    file_name=_cp.name,
                                     mime="text/csv",
                                     key=f"dl_csv_{_cp.name}_{job['job_id']}",
                                 )
@@ -1003,11 +1013,11 @@ with tab_history:
                                 try:
                                     st.download_button(
                                         label=f"⬇ {_gp.name}",
-                                        data=_gp.read_bytes(),
+                                        data=_read_file_cached(str(_gp), _gp.stat().st_mtime_ns),
                                         file_name=_gp.name, mime="image/png",
                                         key=f"dl_gr_{_gp.name}_{job['job_id']}",
                                     )
-                                except OSError:
+                                except Exception:
                                     pass
 
             # ══════════════════════════════════════════════════════════════════
@@ -1025,14 +1035,14 @@ with tab_history:
                             _size_kb = _pdf_p.stat().st_size // 1024
                             st.download_button(
                                 label="⬇ report.pdf をダウンロード",
-                                data=_pdf_p.read_bytes(),
+                                data=_read_file_cached(str(_pdf_p), _pdf_p.stat().st_mtime_ns),
                                 file_name="report.pdf",
                                 mime="application/pdf",
                                 key=f"dl_pdf_{job['job_id']}",
                             )
                             st.caption(f"生成日時: {_mtime}  /  {_size_kb} KB")
-                        except OSError:
-                            st.warning("PDF ファイルを読み込めませんでした。")
+                        except Exception as _e:
+                            st.warning(f"PDF ファイルを読み込めませんでした: {_e}")
                     else:
                         st.info("Not generated yet.")
                 with _dc2:
@@ -1060,14 +1070,14 @@ with tab_history:
                             _instr_kb = _instr_p.stat().st_size // 1024
                             st.download_button(
                                 label="⬇ video_instruction.pdf をダウンロード",
-                                data=_instr_p.read_bytes(),
+                                data=_read_file_cached(str(_instr_p), _instr_p.stat().st_mtime_ns),
                                 file_name="video_instruction.pdf",
                                 mime="application/pdf",
                                 key=f"dl_instr_pdf_{job['job_id']}",
                             )
                             st.caption(f"生成日時: {_instr_mtime}  /  {_instr_kb} KB")
-                        except OSError:
-                            st.warning("説明書PDFファイルを読み込めませんでした。")
+                        except Exception as _e:
+                            st.warning(f"説明書PDFファイルを読み込めませんでした: {_e}")
                     else:
                         st.info("Not generated yet.")
                 with _d2c2:
@@ -1140,14 +1150,14 @@ with tab_history:
                                 _ufr_kb = _ufr_p.stat().st_size // 1024
                                 st.download_button(
                                     label=f"⬇ {_fname} をダウンロード",
-                                    data=_ufr_p.read_bytes(),
+                                    data=_read_file_cached(str(_ufr_p), _ufr_p.stat().st_mtime_ns),
                                     file_name=_fname,
                                     mime="application/pdf",
                                     key=f"dl_{_btn_key}_{job['job_id']}",
                                 )
                                 st.caption(f"生成日時: {_ufr_mt}  /  {_ufr_kb} KB")
-                            except OSError:
-                                st.warning(f"{_fname} を読み込めませんでした。")
+                            except Exception as _e:
+                                st.warning(f"{_fname} を読み込めませんでした: {_e}")
                         else:
                             st.info("未生成 / Not generated yet.")
                     with _k2:
@@ -1194,11 +1204,12 @@ with tab_history:
                     st.markdown(f"**{_fp.name}**")
                     try:
                         st.download_button(
-                            label=f"⬇ {_fp.name}", data=_fp.read_bytes(),
+                            label=f"⬇ {_fp.name}",
+                            data=_read_file_cached(str(_fp), _fp.stat().st_mtime_ns),
                             file_name=_fp.name,
                             key=f"dl_adm_{_fp.name}_{job['job_id']}",
                         )
-                    except OSError:
+                    except Exception:
                         pass
 
                 # 未分類ファイル
@@ -1209,11 +1220,12 @@ with tab_history:
                             continue
                         try:
                             st.download_button(
-                                label=f"⬇ {_fp.name}", data=_fp.read_bytes(),
+                                label=f"⬇ {_fp.name}",
+                                data=_read_file_cached(str(_fp), _fp.stat().st_mtime_ns),
                                 file_name=_fp.name,
                                 key=f"dl_oth_{_fp.name}_{job['job_id']}",
                             )
-                        except OSError:
+                        except Exception:
                             pass
 
                 st.markdown("**ジョブディレクトリ**")
@@ -1570,23 +1582,31 @@ with tab_history:
                         # ステータス & ダウンロード
                         if _zp.exists():
                             try:
-                                _zk  = _zp.stat().st_size // 1024
-                                _zm  = datetime.fromtimestamp(
-                                    _zp.stat().st_mtime
+                                _zstat = _zp.stat()
+                                _zk    = _zstat.st_size // 1024
+                                _zm    = datetime.fromtimestamp(
+                                    _zstat.st_mtime
                                 ).strftime("%Y-%m-%d %H:%M")
                                 st.success("✅ 生成済み")
                                 st.caption(f"`{_card['filename']}`")
                                 st.caption(f"{_zk:,} KB  ·  生成: {_zm}")
+                                # キャッシュ経由で読み込み（毎回 read_bytes しない）
+                                _zip_bytes = _read_file_cached(
+                                    str(_zp), _zstat.st_mtime_ns
+                                )
                                 st.download_button(
-                                    label=f"⬇ ダウンロード",
-                                    data=_zp.read_bytes(),
+                                    label="⬇ ダウンロード",
+                                    data=_zip_bytes,
                                     file_name=_card["filename"],
                                     mime="application/zip",
                                     key=f"dl_zip_{_card['filename']}_{job['job_id']}",
                                     use_container_width=True,
                                 )
-                            except OSError:
-                                st.warning("⚠️ ファイル読み込みエラー")
+                                # ファイルパスをコピー用に表示
+                                with st.expander("📋 ファイルパス（コピー用）", expanded=False):
+                                    st.code(str(_zp.resolve()), language=None)
+                            except Exception as _ze:
+                                st.warning(f"⚠️ 読み込みエラー: {_ze}")
                         else:
                             st.info("⏳ 未生成")
                             st.caption(f"`{_card['filename']}`")
