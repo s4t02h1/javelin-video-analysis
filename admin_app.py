@@ -170,6 +170,11 @@ def _classify_job_files(job_dir: Path, output_files: list) -> dict:
         "graph_files":  [],
         "csv_files":    [],
         "pdf_path":     None,
+        "instr_pdf_path": None,
+        "athlete_pdf_path": None,
+        "key_frame_pdf_path": None,
+        "graph_pack_pdf_path": None,
+        "coach_review_pdf_path": None,
         "admin_files":  [],
         "other_files":  [],
     }
@@ -196,6 +201,16 @@ def _classify_job_files(job_dir: Path, output_files: list) -> dict:
         elif suffix == ".pdf":
             if "report.pdf" in name_lower:
                 result["pdf_path"] = p
+            elif "video_instruction" in name_lower:
+                result["instr_pdf_path"] = p
+            elif "athlete_data_sheet" in name_lower:
+                result["athlete_pdf_path"] = p
+            elif "key_frame_sheet" in name_lower:
+                result["key_frame_pdf_path"] = p
+            elif "graph_pack" in name_lower:
+                result["graph_pack_pdf_path"] = p
+            elif "coach_review_sheet" in name_lower:
+                result["coach_review_pdf_path"] = p
             else:
                 result["other_files"].append(p)
         elif suffix == ".json":
@@ -208,6 +223,24 @@ def _classify_job_files(job_dir: Path, output_files: list) -> dict:
         _pdf = job_dir / "report" / "report.pdf"
         if _pdf.exists():
             result["pdf_path"] = _pdf
+
+    # output_files にない場合でも video_instruction.pdf を直接確認
+    if result["instr_pdf_path"] is None:
+        _instr = job_dir / "report" / "video_instruction.pdf"
+        if _instr.exists():
+            result["instr_pdf_path"] = _instr
+
+    # report/ 配下の新 PDF を直接確認
+    for _key, _fname in [
+        ("athlete_pdf_path",      "athlete_data_sheet.pdf"),
+        ("key_frame_pdf_path",    "key_frame_sheet.pdf"),
+        ("graph_pack_pdf_path",   "graph_pack.pdf"),
+        ("coach_review_pdf_path", "coach_review_sheet.pdf"),
+    ]:
+        if result[_key] is None:
+            _p = job_dir / "report" / _fname
+            if _p.exists():
+                result[_key] = _p
 
     return result
 
@@ -891,7 +924,8 @@ with tab_history:
                     st.info("Not generated yet.")
                 else:
                     if _csv_fps:
-                        st.markdown("**📄 CSVデータシート**")
+                        st.markdown("**📄 CSVデータシート (Raw Data / 上級者・研究者向け)**")
+                        st.caption("⚠ このCSVは生の姿勢推定データです。アスリート向けにはセクション K の athlete_data_sheet.pdf をご利用ください。")
                         for _cp in _csv_fps:
                             if not _cp.exists():
                                 st.caption(f"⚠ {_cp.name} — Not found")
@@ -964,6 +998,131 @@ with tab_history:
                                 st.rerun()
                             except Exception as _pe:
                                 st.error(f"PDF 生成エラー: {_pe}")
+
+            # ══════════════════════════════════════════════════════════════════
+            # D2. 解析動画 説明書 PDF (video_instruction.pdf)
+            # ══════════════════════════════════════════════════════════════════
+            with st.expander("📖 D2. 解析動画 説明書 (video_instruction.pdf)", expanded=True):
+                _instr_p = _cls.get("instr_pdf_path")
+                _d2c1, _d2c2 = st.columns([3, 2])
+                with _d2c1:
+                    if _instr_p and _instr_p.exists():
+                        try:
+                            _instr_mtime = datetime.fromtimestamp(
+                                _instr_p.stat().st_mtime
+                            ).strftime("%Y-%m-%d %H:%M:%S")
+                            _instr_kb = _instr_p.stat().st_size // 1024
+                            st.download_button(
+                                label="⬇ video_instruction.pdf をダウンロード",
+                                data=_instr_p.read_bytes(),
+                                file_name="video_instruction.pdf",
+                                mime="application/pdf",
+                                key=f"dl_instr_pdf_{job['job_id']}",
+                            )
+                            st.caption(f"生成日時: {_instr_mtime}  /  {_instr_kb} KB")
+                        except OSError:
+                            st.warning("説明書PDFファイルを読み込めませんでした。")
+                    else:
+                        st.info("Not generated yet.")
+                with _d2c2:
+                    if st.button("🔄 説明書PDFを生成・再生成", key=f"gen_instr_pdf_{job['job_id']}"):
+                        with st.spinner("説明書PDF を生成中..."):
+                            try:
+                                from src.video_instruction_pdf_generator import (
+                                    generate_video_instruction_pdf_for_job,
+                                )
+                                _new_instr = generate_video_instruction_pdf_for_job(_job_dir)
+                                st.success(f"生成完了: {_new_instr.name}")
+                                st.rerun()
+                            except Exception as _ipe:
+                                st.error(f"説明書PDF 生成エラー: {_ipe}")
+
+            # ══════════════════════════════════════════════════════════════════
+            # K. User-friendly Reports（アスリート向け成果物）
+            # ══════════════════════════════════════════════════════════════════
+            with st.expander("📋 K. User-friendly Reports（アスリート向け）", expanded=True):
+                st.caption("選手・コーチが直接使える PDF 成果物です。")
+
+                _ufr_items = [
+                    (
+                        "athlete_pdf_path",
+                        "athlete_data_sheet.pdf",
+                        "🏃 アスリートデータシート",
+                        "主要指標をまとめた選手向けサマリーPDF",
+                        "gen_athlete_pdf",
+                        "src.athlete_data_sheet_generator",
+                        "generate_athlete_data_sheet_for_job",
+                    ),
+                    (
+                        "key_frame_pdf_path",
+                        "key_frame_sheet.pdf",
+                        "🖼 キーフレームシート",
+                        "フェーズ別代表フレーム一覧PDF",
+                        "gen_key_frame_pdf",
+                        "src.key_frame_sheet_generator",
+                        "generate_key_frame_sheet_for_job",
+                    ),
+                    (
+                        "graph_pack_pdf_path",
+                        "graph_pack.pdf",
+                        "📈 グラフパック",
+                        "解析グラフを解説付きでまとめたPDF",
+                        "gen_graph_pack_pdf",
+                        "src.graph_pack_generator",
+                        "generate_graph_pack_for_job",
+                    ),
+                    (
+                        "coach_review_pdf_path",
+                        "coach_review_sheet.pdf",
+                        "📝 コーチレビューシート",
+                        "フェーズ別チェックリスト＆記入欄PDF",
+                        "gen_coach_review_pdf",
+                        "src.coach_review_sheet_generator",
+                        "generate_coach_review_sheet_for_job",
+                    ),
+                ]
+
+                for (_cls_key, _fname, _label, _caption, _btn_key,
+                     _mod_name, _fn_name) in _ufr_items:
+                    st.markdown(f"**{_label}**")
+                    st.caption(_caption)
+                    _ufr_p = _cls.get(_cls_key)
+                    _k1, _k2 = st.columns([3, 2])
+                    with _k1:
+                        if _ufr_p and _ufr_p.exists():
+                            try:
+                                _ufr_mt = datetime.fromtimestamp(
+                                    _ufr_p.stat().st_mtime
+                                ).strftime("%Y-%m-%d %H:%M:%S")
+                                _ufr_kb = _ufr_p.stat().st_size // 1024
+                                st.download_button(
+                                    label=f"⬇ {_fname} をダウンロード",
+                                    data=_ufr_p.read_bytes(),
+                                    file_name=_fname,
+                                    mime="application/pdf",
+                                    key=f"dl_{_btn_key}_{job['job_id']}",
+                                )
+                                st.caption(f"生成日時: {_ufr_mt}  /  {_ufr_kb} KB")
+                            except OSError:
+                                st.warning(f"{_fname} を読み込めませんでした。")
+                        else:
+                            st.info("未生成 / Not generated yet.")
+                    with _k2:
+                        if st.button(
+                            f"🔄 生成・再生成",
+                            key=f"btn_{_btn_key}_{job['job_id']}",
+                        ):
+                            with st.spinner(f"{_fname} を生成中..."):
+                                try:
+                                    import importlib
+                                    _mod = importlib.import_module(_mod_name)
+                                    _fn  = getattr(_mod, _fn_name)
+                                    _new = _fn(_job_dir)
+                                    st.success(f"生成完了: {_new.name}")
+                                    st.rerun()
+                                except Exception as _ke:
+                                    st.error(f"生成エラー: {_ke}")
+                    st.divider()
 
             # ══════════════════════════════════════════════════════════════════
             # E. Admin / Internal Files（管理者内部用）
@@ -1267,6 +1426,7 @@ with tab_history:
                         "contents":  [
                             "📹 解析動画（骨格・トレイル等）",
                             "🖼️ 代表フレーム画像（先頭3枚）",
+                            "📖 解析動画 説明書 (video_instruction.pdf)",
                         ],
                         "badge_color": "#2E7D32",   # 緑
                         "badge_text":  "FREE",
@@ -1281,6 +1441,7 @@ with tab_history:
                             "📄 pose_landmarks.csv（全フレーム座標）",
                             "📈 解析グラフ画像（3種）",
                             "🖼️ 代表フレーム画像（全枚）",
+                            "📖 解析動画 説明書 (video_instruction.pdf)",
                         ],
                         "badge_color": "#1565C0",   # 青
                         "badge_text":  "PAID",
@@ -1293,6 +1454,7 @@ with tab_history:
                         "purpose":   "PDF・動画・データを完全セットで納品したい場合",
                         "contents":  [
                             "📝 report.pdf（A4レポート）",
+                            "📖 解析動画 説明書 (video_instruction.pdf)",
                             "📄 pose_landmarks.csv",
                             "📈 解析グラフ画像",
                             "🖼️ 代表フレーム画像（全枚）",

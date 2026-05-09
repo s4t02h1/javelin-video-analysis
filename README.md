@@ -283,7 +283,33 @@ javelin-video-analysis/
     └── test_pipeline.py
 ```
 
-## 📖 詳細ドキュメント
+## � 成果物ファイルの種類
+
+解析ジョブは `jobs/<job_id>/report/` に以下のファイルを生成します。
+
+| ファイル | 用途 | 対象 |
+|---|---|---|
+| `report.pdf` | 全指標を収録した詳細レポート | 管理者・上級者 |
+| `video_instruction.pdf` | 各解析動画の見方を説明 | 全ユーザー |
+| `athlete_data_sheet.pdf` | 主要指標をまとめた選手向けサマリー | **アスリート** |
+| `key_frame_sheet.pdf` | フェーズ別代表フレーム一覧 | **アスリート** |
+| `graph_pack.pdf` | 解析グラフを解説付きでまとめたパック | **アスリート** |
+| `coach_review_sheet.pdf` | フェーズ別チェックリスト＆記入欄 | **コーチ** |
+| `pose_landmarks.csv` | 全フレームの姿勢推定生データ | 開発者・研究者 |
+
+> **Note**: `pose_landmarks.csv` は生データです。一般のアスリート向けには `athlete_data_sheet.pdf` をご使用ください。
+
+### 納品ZIPパッケージの構成
+
+| パッケージ | 含まれるファイル |
+|---|---|
+| `free_preview.zip` | プレビュー動画 + 代表フレーム先頭3枚 + 動画説明書 |
+| `data_sheet_package.zip` | 全動画 + 全フレーム + アスリート向けPDF3種 + Raw Data CSV |
+| `full_report_package.zip` | 上記すべて + 詳細レポート + コーチレビューシート + グラフ画像 + 生データJSON |
+
+---
+
+## �📖 詳細ドキュメント
 
 ### API リファレンス
 - [可視化プラグイン開発ガイド](docs/PLUGIN_DEVELOPMENT.md)
