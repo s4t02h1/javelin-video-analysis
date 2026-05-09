@@ -23,19 +23,27 @@ _REPO_ROOT = Path(__file__).resolve().parent
 
 from job_manager import (
     JOBS_DIR,
+    COMPARISONS_DIR,
     JOB_STATUSES,
     JOB_STATUS_LABELS,
     collect_output_files,
+    create_comparison,
     create_job,
+    get_comparison_dir,
     get_customer_info,
     get_delivery_checklist,
     get_intake_info,
     get_job_dir,
+    get_phase_frames,
+    list_comparisons,
     list_jobs,
+    load_comparison,
+    update_comparison,
     update_customer_info,
     update_delivery_checklist,
     update_intake_info,
     update_job,
+    update_phase_frames,
 )
 
 _RUN_PY = _REPO_ROOT / "run.py"
@@ -2302,204 +2310,444 @@ with tab_history:
                     st.rerun()
                 st.caption(f"updated_at: {_cl.get('updated_at', '—')}")
 
+            # ── O. フェーズ指定 ─────────────────────────────────────────────────
+            with st.expander("🎬 O. フェーズ指定", expanded=False):
+                try:
+                    from src.phase_loader import load_phases, get_all_phase_keys, is_range_phase
+                    _phases_def = load_phases()
+                    _phase_keys = get_all_phase_keys()
+                except Exception as _phe:
+                    st.error(f"フェーズ定義の読み込みに失敗しました: {_phe}")
+                    _phases_def = {}
+                    _phase_keys = []
+
+                _pf = get_phase_frames(selected_id)
+
+                # 動画 FPS / 総フレーム数
+                _pf_col1, _pf_col2, _pf_col3 = st.columns(3)
+                with _pf_col1:
+                    _fps_val = _pf.get("fps") or 0.0
+                    _fps_new = st.number_input(
+                        "FPS", min_value=0.0, max_value=240.0,
+                        value=float(_fps_val), step=0.001, format="%.3f",
+                        key=f"pf_fps_{selected_id}",
+                    )
+                with _pf_col2:
+                    _total_frames_val = _pf.get("total_frames") or 0
+                    _total_frames_new = st.number_input(
+                        "総フレーム数", min_value=0, max_value=1_000_000,
+                        value=int(_total_frames_val), step=1,
+                        key=f"pf_total_{selected_id}",
+                    )
+                with _pf_col3:
+                    _dur = (_total_frames_new / _fps_new) if _fps_new > 0 else 0.0
+                    st.metric("動画尺（秒）", f"{_dur:.2f} 秒")
+
+                st.divider()
+
+                _pf_new: dict = {}
+                for _phase_key in _phase_keys:
+                    _phase_def = _phases_def.get(_phase_key, {})
+                    _phase_label = _phase_def.get("label", _phase_key)
+                    _is_range = is_range_phase(_phase_key)
+                    st.markdown(f"**{_phase_label}**")
+                    if _is_range:
+                        _c1, _c2 = st.columns(2)
+                        with _c1:
+                            _sf_key = f"{_phase_key}_start_frame"
+                            _sf_val = _pf.get(_sf_key)
+                            _sf_new = st.number_input(
+                                "開始フレーム",
+                                min_value=0, max_value=1_000_000,
+                                value=int(_sf_val) if _sf_val is not None else 0,
+                                step=1,
+                                key=f"pf_{_sf_key}_{selected_id}",
+                            )
+                            _sf_sec = (_sf_new / _fps_new) if _fps_new > 0 else 0.0
+                            st.caption(f"= {_sf_sec:.2f} 秒")
+                            _pf_new[_sf_key] = _sf_new if _sf_new > 0 else None
+                        with _c2:
+                            _ef_key = f"{_phase_key}_end_frame"
+                            _ef_val = _pf.get(_ef_key)
+                            _ef_new = st.number_input(
+                                "終了フレーム",
+                                min_value=0, max_value=1_000_000,
+                                value=int(_ef_val) if _ef_val is not None else 0,
+                                step=1,
+                                key=f"pf_{_ef_key}_{selected_id}",
+                            )
+                            _ef_sec = (_ef_new / _fps_new) if _fps_new > 0 else 0.0
+                            st.caption(f"= {_ef_sec:.2f} 秒")
+                            _pf_new[_ef_key] = _ef_new if _ef_new > 0 else None
+                    else:
+                        _ff_key = f"{_phase_key}_frame"
+                        _ff_val = _pf.get(_ff_key)
+                        _ff_new = st.number_input(
+                            "フレーム番号",
+                            min_value=0, max_value=1_000_000,
+                            value=int(_ff_val) if _ff_val is not None else 0,
+                            step=1,
+                            key=f"pf_{_ff_key}_{selected_id}",
+                        )
+                        _ff_sec = (_ff_new / _fps_new) if _fps_new > 0 else 0.0
+                        st.caption(f"= {_ff_sec:.2f} 秒")
+                        _pf_new[_ff_key] = _ff_new if _ff_new > 0 else None
+
+                st.divider()
+                _pf_btn_col1, _pf_btn_col2, _pf_btn_col3 = st.columns(3)
+
+                with _pf_btn_col1:
+                    if st.button("💾 フェーズ情報を保存", key=f"pf_save_{selected_id}"):
+                        update_phase_frames(
+                            selected_id,
+                            fps=_fps_new if _fps_new > 0 else None,
+                            total_frames=_total_frames_new if _total_frames_new > 0 else None,
+                            **_pf_new,
+                        )
+                        st.success("✅ フェーズ情報を保存しました。")
+                        st.rerun()
+
+                with _pf_btn_col2:
+                    if st.button("🖼️ フェーズ代表フレーム生成", key=f"pf_extract_{selected_id}"):
+                        with st.spinner("フレーム抽出中..."):
+                            try:
+                                from src.phase_frames import extract_phase_frames_for_job
+                                _pf_result = extract_phase_frames_for_job(get_job_dir(selected_id))
+                                if _pf_result:
+                                    st.success(f"✅ {len(_pf_result)} 件のフレームを抽出しました。")
+                                else:
+                                    st.warning("抽出対象がありませんでした。フェーズ情報を保存してから再実行してください。")
+                            except Exception as _pfe:
+                                st.error(f"フレーム抽出エラー: {_pfe}")
+
+                with _pf_btn_col3:
+                    if st.button("📄 フェーズ別サマリーPDF生成", key=f"pf_pdf_{selected_id}"):
+                        with st.spinner("PDF生成中..."):
+                            try:
+                                from src.phase_summary_pdf import generate_phase_summary_pdf
+                                _ps_pdf = generate_phase_summary_pdf(get_job_dir(selected_id))
+                                st.success(f"✅ PDF生成: `{_ps_pdf.name}`")
+                            except Exception as _pse:
+                                st.error(f"PDF生成エラー: {_pse}")
+
+                # フェーズ代表フレーム画像プレビュー
+                _phase_img_dir_preview = get_job_dir(selected_id) / "report" / "phase_frames"
+                if _phase_img_dir_preview.exists():
+                    _preview_imgs = sorted(_phase_img_dir_preview.glob("phase_*.jpg"))
+                    if _preview_imgs:
+                        st.caption(f"生成済みフレーム画像: {len(_preview_imgs)} 件")
+                        _prev_cols = st.columns(min(4, len(_preview_imgs)))
+                        for _pi, _pimg in enumerate(_preview_imgs):
+                            with _prev_cols[_pi % 4]:
+                                st.image(str(_pimg), caption=_pimg.stem, use_container_width=True)
+
+                st.caption(f"updated_at: {_pf.get('updated_at', '—')}")
+
 
 # ─── Tab 3: ジョブ比較 ────────────────────────────────────────────────────────
 
+
 with tab_compare:
     st.header("⚖️ ジョブ比較")
-    st.caption(
-        "完了済みの2つのジョブを選択し、analysis_summary.json の差分を比較します。"
-        "比較前に各ジョブの「📊 J. 解析サマリー」が生成されている必要があります。"
-    )
 
-    # ── 完了済みジョブ一覧を取得 ──────────────────────────────────────────────
-    _all_jobs = list_jobs()
-    _done_jobs = [j for j in _all_jobs if j.get("status") == "completed"]
+    _cmp_tab_a, _cmp_tab_b = st.tabs(["➕ 比較ジョブ作成", "📂 比較ジョブ一覧"])
 
-    if len(_done_jobs) < 2:
-        st.warning(
-            "比較には完了済みジョブが2つ以上必要です。"
-            "先に「新規ジョブ」タブで解析を実行してください。"
+    # ─── 比較ジョブ作成 ────────────────────────────────────────────────────────
+    with _cmp_tab_a:
+        st.subheader("新しい比較ジョブを作成")
+        st.caption(
+            "完了済みの2つのジョブを選択し、比較ジョブとして登録します。"
+            "登録後に「比較ジョブ一覧」タブから比較レポートや ZIP を生成できます。"
         )
-    else:
-        # job_id → 表示ラベルのマッピング
-        def _job_label(j: dict) -> str:
-            ci = get_customer_info(j["job_id"])
-            name = ci.get("customer_name") or ""
-            ts   = j.get("created_at", j["job_id"])[:16] if j.get("created_at") else j["job_id"]
-            return f"{ts}  {name}  [{j['job_id']}]" if name else f"{ts}  [{j['job_id']}]"
 
-        _job_options   = [j["job_id"] for j in _done_jobs]
-        _job_labels    = {j["job_id"]: _job_label(j) for j in _done_jobs}
-        _label_to_id   = {v: k for k, v in _job_labels.items()}
-        _display_opts  = [_job_labels[jid] for jid in _job_options]
+        _all_jobs_c = list_jobs()
+        _done_jobs_c = [j for j in _all_jobs_c if j.get("status") == "completed"]
 
-        _cmp_col1, _cmp_col2 = st.columns(2)
-        with _cmp_col1:
-            st.markdown("**Job A（比較元）**")
-            _sel_a_label = st.selectbox(
-                "Job A", options=_display_opts,
-                index=0,
-                key="cmp_job_a",
-                label_visibility="collapsed",
+        if len(_done_jobs_c) < 2:
+            st.warning(
+                "比較には完了済みジョブが2つ以上必要です。"
+                "先に「新規ジョブ」タブで解析を実行してください。"
             )
-        with _cmp_col2:
-            st.markdown("**Job B（比較先）**")
-            _sel_b_label = st.selectbox(
-                "Job B", options=_display_opts,
-                index=min(1, len(_display_opts) - 1),
-                key="cmp_job_b",
-                label_visibility="collapsed",
-            )
-
-        _sel_a_id = _label_to_id[_sel_a_label]
-        _sel_b_id = _label_to_id[_sel_b_label]
-
-        if _sel_a_id == _sel_b_id:
-            st.warning("同じジョブが選択されています。異なるジョブを選択してください。")
         else:
-            # ── 比較サマリー存在チェック ──────────────────────────────────
-            _dir_a = get_job_dir(_sel_a_id)
-            _dir_b = get_job_dir(_sel_b_id)
-            _sum_a_exists = (_dir_a / "report" / "analysis_summary.json").exists()
-            _sum_b_exists = (_dir_b / "report" / "analysis_summary.json").exists()
+            def _job_label_c(j: dict) -> str:
+                ci = get_customer_info(j["job_id"])
+                name = ci.get("customer_name") or ""
+                ts = j.get("created_at", j["job_id"])[:16] if j.get("created_at") else j["job_id"]
+                return f"{ts}  {name}  [{j['job_id']}]" if name else f"{ts}  [{j['job_id']}]"
 
-            if not _sum_a_exists or not _sum_b_exists:
-                _missing = []
-                if not _sum_a_exists:
-                    _missing.append(f"Job A ({_sel_a_id})")
-                if not _sum_b_exists:
-                    _missing.append(f"Job B ({_sel_b_id})")
-                st.warning(
-                    f"以下のジョブの analysis_summary.json がありません: "
-                    f"{', '.join(_missing)}  \n"
-                    f"ジョブ詳細の「📊 J. 解析サマリー」から先に生成してください。"
+            _job_opts_c   = [j["job_id"] for j in _done_jobs_c]
+            _job_lbls_c   = {j["job_id"]: _job_label_c(j) for j in _done_jobs_c}
+            _lbl_to_id_c  = {v: k for k, v in _job_lbls_c.items()}
+            _disp_opts_c  = [_job_lbls_c[jid] for jid in _job_opts_c]
+
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                st.markdown("**Job A（比較元 / 旧 / 1本目）**")
+                _sel_a_c_lbl = st.selectbox(
+                    "Job A", options=_disp_opts_c, index=0,
+                    key="new_cmp_job_a", label_visibility="collapsed",
+                )
+                _label_a_new = st.text_input(
+                    "動画A の表示名", value="動画A",
+                    key="new_cmp_label_a",
+                    help="例: 改善前 / 試合1本目 / 成功投てき",
+                )
+            with _cc2:
+                st.markdown("**Job B（比較先 / 新 / 2本目）**")
+                _sel_b_c_lbl = st.selectbox(
+                    "Job B", options=_disp_opts_c,
+                    index=min(1, len(_disp_opts_c) - 1),
+                    key="new_cmp_job_b", label_visibility="collapsed",
+                )
+                _label_b_new = st.text_input(
+                    "動画B の表示名", value="動画B",
+                    key="new_cmp_label_b",
+                    help="例: 改善後 / 試合2本目 / 失敗投てき",
                 )
 
-            # ── 比較実行ボタン ────────────────────────────────────────────
+            _sel_a_c_id = _lbl_to_id_c[_sel_a_c_lbl]
+            _sel_b_c_id = _lbl_to_id_c[_sel_b_c_lbl]
+
+            _purpose_new = st.text_area(
+                "比較目的（任意）", value="",
+                key="new_cmp_purpose",
+                placeholder="例: 助走フォームの改善前後を確認する",
+                height=80,
+            )
+            _memo_new = st.text_area(
+                "管理者メモ（任意）", value="",
+                key="new_cmp_memo",
+                height=60,
+            )
+
+            _same_id_warn = _sel_a_c_id == _sel_b_c_id
+            if _same_id_warn:
+                st.warning("同じジョブが選択されています。異なるジョブを選択してください。")
+
             if st.button(
-                "⚖️ 比較を実行",
-                key="run_compare",
-                use_container_width=False,
-                disabled=(not _sum_a_exists or not _sum_b_exists),
+                "➕ 比較ジョブを作成",
+                key="btn_create_comparison",
+                disabled=_same_id_warn,
             ):
-                with st.spinner("比較中..."):
-                    try:
-                        import sys as _sys
-                        _sys.path.insert(0, str(_REPO_ROOT / "src"))
-                        from src.compare_jobs import compare_two_jobs, save_comparison
-                        _cmp_result = compare_two_jobs(_dir_a, _dir_b)
-                        if _cmp_result.get("status") == "error":
-                            st.error(f"比較エラー: {_cmp_result.get('error')}")
-                        else:
-                            _saved_path = save_comparison(
-                                _cmp_result,
-                                comparisons_root=JOBS_DIR / "comparisons",
-                            )
-                            st.session_state["last_comparison"] = _cmp_result
-                            st.session_state["last_comparison_path"] = str(_saved_path)
-                            st.success(f"✅ 比較完了  →  保存先: `{_saved_path}`")
-                            st.rerun()
-                    except Exception as _ce:
-                        st.error(f"比較処理エラー: {_ce}")
-
-        # ── 比較結果の表示 ────────────────────────────────────────────────────
-        _cmp_data: dict | None = st.session_state.get("last_comparison")
-        if _cmp_data and _cmp_data.get("status") == "ok":
-            st.divider()
-            st.subheader("比較結果")
-
-            # ジョブ基本情報
-            _ja = _cmp_data.get("job_a", {})
-            _jb = _cmp_data.get("job_b", {})
-            _info_cols = st.columns(2)
-            with _info_cols[0]:
-                st.markdown(
-                    f"**Job A** — `{_ja.get('job_id', '—')}`  \n"
-                    f"利き腕: {str(_ja.get('dominant_hand', '—')).capitalize()}  |  "
-                    f"フレーム数: {_ja.get('total_frames', '—')}"
+                _new_comp = create_comparison(
+                    job_a_id=_sel_a_c_id,
+                    job_b_id=_sel_b_c_id,
+                    label_a=_label_a_new or "動画A",
+                    label_b=_label_b_new or "動画B",
+                    purpose=_purpose_new,
+                    admin_memo=_memo_new,
                 )
-            with _info_cols[1]:
-                st.markdown(
-                    f"**Job B** — `{_jb.get('job_id', '—')}`  \n"
-                    f"利き腕: {str(_jb.get('dominant_hand', '—')).capitalize()}  |  "
-                    f"フレーム数: {_jb.get('total_frames', '—')}"
-                )
+                st.success(f"✅ 比較ジョブを作成しました: `{_new_comp['comparison_id']}`")
+                st.rerun()
 
-            # 差分テーブル
-            _fields = _cmp_data.get("fields", {})
-            _table_rows = []
-            for _fkey, _fval in _fields.items():
-                _diff_v = _fval.get("diff")
-                if _diff_v is not None:
-                    _diff_str = f"+{_diff_v}" if _diff_v > 0 else str(_diff_v)
-                else:
-                    _diff_str = "—"
-                _table_rows.append({
-                    "指標":           _fval.get("label", _fkey),
-                    "Job A":          _fval.get("a") if _fval.get("a") is not None else "—",
-                    "Job B":          _fval.get("b") if _fval.get("b") is not None else "—",
-                    "差分 (B − A)":   _diff_str,
-                })
+    # ─── 比較ジョブ一覧 ────────────────────────────────────────────────────────
+    with _cmp_tab_b:
+        st.subheader("比較ジョブ一覧")
 
-            _df_cmp = pd.DataFrame(_table_rows)
-            st.dataframe(_df_cmp, use_container_width=True, hide_index=True)
+        _cmp_list = list_comparisons()
 
-            # 保存先
-            _saved_str = st.session_state.get("last_comparison_path")
-            if _saved_str:
-                st.caption(f"比較結果保存先: `{_saved_str}`")
-
-            # Raw JSON
-            with st.expander("🗂️ Raw JSON", expanded=False):
-                st.json(_cmp_data)
-
-    # ── 過去の比較履歴 ────────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("比較履歴")
-    _comp_root = JOBS_DIR / "comparisons"
-    if not _comp_root.exists() or not any(_comp_root.iterdir()):
-        st.info("比較履歴はまだありません。")
-    else:
-        try:
-            import sys as _sys2
-            _sys2.path.insert(0, str(_REPO_ROOT / "src"))
-            from src.compare_jobs import list_comparisons
-            _history = list_comparisons(_comp_root)
-        except Exception:
-            _history = []
-
-        if not _history:
-            st.info("比較履歴の読み込みに失敗しました。")
+        if not _cmp_list:
+            st.info("比較ジョブはまだありません。「比較ジョブ作成」タブから作成してください。")
         else:
-            for _h in _history:
-                _cid  = _h.get("comparison_id", "—")
-                _hja  = _h.get("job_a", {})
-                _hjb  = _h.get("job_b", {})
-                _hgen = _h.get("generated_at", "—")
+            for _comp in _cmp_list:
+                _cid      = _comp.get("comparison_id", "—")
+                _cla      = _comp.get("label_a", "動画A")
+                _clb      = _comp.get("label_b", "動画B")
+                _cja      = _comp.get("job_a_id", "—")
+                _cjb      = _comp.get("job_b_id", "—")
+                _cstat    = _comp.get("status", "created")
+                _cpurpose = _comp.get("purpose", "")
+                _ccreated = _comp.get("created_at", "—")[:16] if _comp.get("created_at") else "—"
+
                 with st.expander(
-                    f"🕓 {_cid}  |  {_hja.get('job_id','?')}  vs  {_hjb.get('job_id','?')}",
+                    f"📊 {_ccreated}  |  {_cla} vs {_clb}  [{_cid}]  ({_cstat})",
                     expanded=False,
                 ):
-                    if _h.get("status") == "error":
-                        st.error(_h.get("error"))
-                    else:
-                        _hfields = _h.get("fields", {})
-                        _hrows = []
-                        for _fk, _fv in _hfields.items():
-                            _dv = _fv.get("diff")
-                            _hrows.append({
-                                "指標":         _fv.get("label", _fk),
-                                "Job A":        _fv.get("a") if _fv.get("a") is not None else "—",
-                                "Job B":        _fv.get("b") if _fv.get("b") is not None else "—",
-                                "差分 (B − A)": f"+{_dv}" if (_dv is not None and _dv > 0) else (str(_dv) if _dv is not None else "—"),
-                            })
-                        st.dataframe(
-                            pd.DataFrame(_hrows),
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                        st.caption(f"生成日時: {_hgen}")
+                    _ci_col1, _ci_col2 = st.columns(2)
+                    with _ci_col1:
+                        st.markdown(f"**{_cla}**  `{_cja}`")
+                    with _ci_col2:
+                        st.markdown(f"**{_clb}**  `{_cjb}`")
+                    if _cpurpose:
+                        st.caption(f"比較目的: {_cpurpose}")
+
+                    # ステータス変更
+                    _status_opts = ["created", "report_generated", "delivered"]
+                    _status_labels = {
+                        "created": "作成済み",
+                        "report_generated": "レポート生成済み",
+                        "delivered": "納品済み",
+                    }
+                    _cur_status_idx = _status_opts.index(_cstat) if _cstat in _status_opts else 0
+                    _new_status_label = st.selectbox(
+                        "ステータス",
+                        options=[_status_labels[s] for s in _status_opts],
+                        index=_cur_status_idx,
+                        key=f"cmp_status_{_cid}",
+                    )
+                    _new_status = _status_opts[[_status_labels[s] for s in _status_opts].index(_new_status_label)]
+                    if _new_status != _cstat:
+                        if st.button("💾 ステータス保存", key=f"cmp_stat_save_{_cid}"):
+                            update_comparison(_cid, status=_new_status)
+                            st.success("ステータスを更新しました。")
+                            st.rerun()
+
+                    st.divider()
+
+                    # 生成ボタン群
+                    _cmp_dir_path = get_comparison_dir(_cid)
+                    _dir_a_path   = get_job_dir(_cja)
+                    _dir_b_path   = get_job_dir(_cjb)
+
+                    _cbtn1, _cbtn2, _cbtn3, _cbtn4 = st.columns(4)
+
+                    with _cbtn1:
+                        if st.button("📊 差分比較実行", key=f"cmp_run_{_cid}"):
+                            with st.spinner("比較中..."):
+                                try:
+                                    from src.compare_jobs import compare_two_jobs, save_comparison
+                                    _cr = compare_two_jobs(_dir_a_path, _dir_b_path)
+                                    if _cr.get("status") == "error":
+                                        st.error(f"比較エラー: {_cr.get('error')}")
+                                    else:
+                                        save_comparison(
+                                            _cr,
+                                            comparisons_root=_cmp_dir_path.parent,
+                                            comparison_id=_cid,
+                                        )
+                                        update_comparison(_cid, status="report_generated")
+                                        st.success("✅ 差分比較完了")
+                                        st.rerun()
+                                except Exception as _cre:
+                                    st.error(f"比較エラー: {_cre}")
+
+                    with _cbtn2:
+                        if st.button("📄 比較レポートPDF", key=f"cmp_pdf_{_cid}"):
+                            with st.spinner("PDF生成中..."):
+                                try:
+                                    from src.comparison_report_pdf import generate_comparison_report_pdf
+                                    _rp = generate_comparison_report_pdf(
+                                        comparison_dir=_cmp_dir_path,
+                                        job_dir_a=_dir_a_path,
+                                        job_dir_b=_dir_b_path,
+                                        label_a=_cla,
+                                        label_b=_clb,
+                                        purpose=_cpurpose,
+                                    )
+                                    update_comparison(_cid, status="report_generated")
+                                    st.success(f"✅ PDF生成: `{_rp.name}`")
+                                    st.rerun()
+                                except Exception as _re:
+                                    st.error(f"PDF生成エラー: {_re}")
+
+                    with _cbtn3:
+                        if st.button("📦 比較ZIP生成", key=f"cmp_zip_{_cid}"):
+                            with st.spinner("ZIP生成中..."):
+                                try:
+                                    from src.comparison_zip import create_comparison_zip
+                                    _zp = create_comparison_zip(
+                                        comparison_dir=_cmp_dir_path,
+                                        job_dir_a=_dir_a_path,
+                                        job_dir_b=_dir_b_path,
+                                        label_a=_cla,
+                                        label_b=_clb,
+                                    )
+                                    st.success(f"✅ ZIP生成: `{_zp.name}`")
+                                    st.rerun()
+                                except Exception as _ze:
+                                    st.error(f"ZIP生成エラー: {_ze}")
+
+                    with _cbtn4:
+                        # ZIP ダウンロード
+                        _zip_path = _cmp_dir_path / "comparison_package.zip"
+                        if _zip_path.exists():
+                            with open(_zip_path, "rb") as _zf:
+                                st.download_button(
+                                    "⬇️ ZIP DL",
+                                    data=_zf.read(),
+                                    file_name=f"comparison_{_cid}.zip",
+                                    mime="application/zip",
+                                    key=f"cmp_dl_{_cid}",
+                                )
+                        else:
+                            st.button("⬇️ ZIP DL", disabled=True, key=f"cmp_dl_na_{_cid}")
+
+                    # 生成済みファイル一覧
+                    if _cmp_dir_path.exists():
+                        _cmp_files = [f for f in _cmp_dir_path.iterdir() if f.is_file()]
+                        if _cmp_files:
+                            with st.expander("📁 生成済みファイル", expanded=False):
+                                for _cf in sorted(_cmp_files):
+                                    size_kb = _cf.stat().st_size // 1024
+                                    st.caption(f"`{_cf.name}` ({size_kb} KB)")
+
+                    # 比較サマリー表示
+                    _csummary_path = _cmp_dir_path / "comparison_summary.json"
+                    if _csummary_path.exists():
+                        try:
+                            import json as _json_c
+                            _cs = _json_c.loads(_csummary_path.read_text(encoding="utf-8"))
+                            _csfields = _cs.get("fields", {})
+                            if _csfields:
+                                _csrows = []
+                                for _fk, _fv in _csfields.items():
+                                    _dv = _fv.get("diff")
+                                    _csrows.append({
+                                        "指標":         _fv.get("label", _fk),
+                                        _cla:           _fv.get("a") if _fv.get("a") is not None else "—",
+                                        _clb:           _fv.get("b") if _fv.get("b") is not None else "—",
+                                        "差分 (B−A)": f"+{_dv:.3f}" if (_dv is not None and _dv > 0) else (f"{_dv:.3f}" if _dv is not None else "—"),
+                                    })
+                                st.dataframe(pd.DataFrame(_csrows), use_container_width=True, hide_index=True)
+                        except Exception:
+                            pass
+
+        # 既存の比較サマリー（compare_jobs.py 出力の旧形式）を参照
+        st.divider()
+        st.subheader("旧形式の比較履歴（jobs/comparisons/）")
+        _old_comp_root = JOBS_DIR / "comparisons"
+        if not _old_comp_root.exists() or not any(_old_comp_root.iterdir()):
+            st.info("旧形式の比較履歴はありません。")
+        else:
+            try:
+                from src.compare_jobs import list_comparisons as _list_old_cmp
+                _old_history = _list_old_cmp(_old_comp_root)
+            except Exception:
+                _old_history = []
+
+            if not _old_history:
+                st.info("旧形式の比較履歴の読み込みに失敗しました。")
+            else:
+                for _h in _old_history:
+                    _cid_h  = _h.get("comparison_id", "—")
+                    _hja    = _h.get("job_a", {})
+                    _hjb    = _h.get("job_b", {})
+                    _hgen   = _h.get("generated_at", "—")
+                    with st.expander(
+                        f"🕓 {_cid_h}  |  {_hja.get('job_id','?')}  vs  {_hjb.get('job_id','?')}",
+                        expanded=False,
+                    ):
+                        if _h.get("status") == "error":
+                            st.error(_h.get("error"))
+                        else:
+                            _hfields = _h.get("fields", {})
+                            _hrows = []
+                            for _fk, _fv in _hfields.items():
+                                _dv = _fv.get("diff")
+                                _hrows.append({
+                                    "指標":         _fv.get("label", _fk),
+                                    "Job A":        _fv.get("a") if _fv.get("a") is not None else "—",
+                                    "Job B":        _fv.get("b") if _fv.get("b") is not None else "—",
+                                    "差分 (B − A)": f"+{_dv}" if (_dv is not None and _dv > 0) else (str(_dv) if _dv is not None else "—"),
+                                })
+                            st.dataframe(
+                                pd.DataFrame(_hrows),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                            st.caption(f"生成日時: {_hgen}")
+
+
 
 
 # ─── Tab 4: 運用チェックリスト ────────────────────────────────────────────────

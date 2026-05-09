@@ -1,0 +1,79 @@
+# configs/phases.yaml — やり投げ動作フェーズ定義
+#
+# 管理画面・PDF・代表フレーム生成・比較レポートでこのファイルを参照する。
+# フェーズは動作順（助走→リカバリー）に並べること。
+# label:       管理画面・PDFに表示する日本語名
+# label_en:    英語名（内部キーとして使用することもある）
+# description: アスリート・保護者向けの説明（高校生でも理解できる日本語）
+# key_points:  このフェーズで確認したい主なポイント（リスト）
+# is_range:    True = 開始〜終了フレームで定義 / False = 単一フレームで定義
+
+approach:
+  label: "助走"
+  label_en: "Approach"
+  description: "投てきに向けてスピードとリズムを作る局面です。助走の速さと歩幅が投げのパワーに影響します。"
+  key_points:
+    - "歩幅とリズムが一定か"
+    - "上体の前傾・やりの持ち方"
+    - "目線と進行方向"
+  is_range: true
+
+cross_step:
+  label: "クロスステップ"
+  label_en: "Cross Step"
+  description: "投げに向けて身体を横向きに移行し、助走の力を投げにつなげる局面です。左右の協調が重要です。"
+  key_points:
+    - "足のクロスと体の向き"
+    - "肩・腰のひねりが生まれているか"
+    - "助走のスピードが維持されているか"
+  is_range: true
+
+withdrawal:
+  label: "槍を引く局面"
+  label_en: "Withdrawal"
+  description: "やりを後方に引き、投げの準備を作る局面です。肩甲骨を寄せてやりを引きます。"
+  key_points:
+    - "やりが水平〜やや後傾を保てているか"
+    - "肩の高さと肘の向き"
+    - "身体の捻転が作れているか"
+  is_range: true
+
+block:
+  label: "ブロック"
+  label_en: "Block"
+  description: "前脚で身体を受け止め、助走の力を上半身とやりへ伝える局面です。ブロックが固いほど力が伝わりやすくなります。"
+  key_points:
+    - "前脚がしっかり地面を捉えているか"
+    - "腰・肩の回転が始まっているか"
+    - "肘が下がっていないか"
+  is_range: false
+
+release:
+  label: "リリース"
+  label_en: "Release"
+  description: "やりを手放す瞬間です。手首・肘・肩の順に力が伝わるのが理想とされています。"
+  key_points:
+    - "やりが指先から離れていく方向"
+    - "肘の高さとリリース角度"
+    - "上体の傾きと重心位置"
+  is_range: false
+
+follow_through:
+  label: "フォロースルー"
+  label_en: "Follow Through"
+  description: "リリース後に身体が前方へ流れる局面です。無理に止めず、力を逃がすことでケガを防ぎます。"
+  key_points:
+    - "体の重心が前方に流れているか"
+    - "腕・肩のリラックス"
+    - "バランスの維持"
+  is_range: true
+
+recovery:
+  label: "リカバリー"
+  label_en: "Recovery"
+  description: "投てき後に姿勢を保ち、ファールを防ぐ局面です。助走ラインを踏み越えないよう注意します。"
+  key_points:
+    - "前方への勢いを制御できているか"
+    - "着地位置とバランス"
+    - "ファールラインとの距離"
+  is_range: true

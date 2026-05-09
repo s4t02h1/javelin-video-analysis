@@ -18,6 +18,8 @@
 #   analysis_summary_json   analysis_summary.json
 #   comparison_report_pdf   比較レポートPDF
 #   comparison_graphs       比較グラフ画像
+#   comparison_phase_images フェーズ別比較画像（A/B 並置）
+#   phase_summary_pdf       フェーズ別サマリーPDF
 
 free_preview:
   label: "無料プレビュー"
@@ -79,7 +81,9 @@ comparison:
   includes:
     - readme_pdf
     - video_instruction_pdf
+    - phase_summary_pdf
     - comparison_report_pdf
+    - comparison_phase_images
     - comparison_graphs
-    - key_frame_sheet
     - selected_videos
+

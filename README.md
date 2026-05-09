@@ -1027,3 +1027,41 @@ Googleフォームの回答CSVを管理画面「📥 CSVインポート」タブ
 | `docs/google_form_template.md` | Googleフォーム推奨テンプレート（新規） |
 | `tests/test_phase3.py` | Phase 3 ユニットテスト（新規） |
 
+---
+
+## Phase 4: 2動画比較・フェーズ別解析
+
+投てき動作を 7 フェーズに分割し、2本の動画を並べて比較できる機能を追加しました。
+
+### 主な新機能
+
+#### フェーズ別解析
+- **フェーズ定義** (`configs/phases.yaml`): 助走・クロスステップ・槍を引く・ブロック・リリース・フォロースルー・リカバリー の 7 フェーズを定義
+- **フェーズ指定 UI** (管理画面「🎬 O. フェーズ指定」): 各フェーズのフレーム番号を手動指定。FPS から秒数を自動計算して表示
+- **フェーズ別代表フレーム生成**: 指定フレームを JPEG 保存 (`report/phase_frames/phase_<key>.jpg`)
+- **フェーズ別サマリー PDF** (`report/phase_summary.pdf`): 各フェーズの画像・説明・確認ポイントをまとめた PDF
+
+#### 2動画比較
+- **比較ジョブ管理**: 2本のジョブを選んで「比較ジョブ」として登録 (`comparisons/<id>/comparison.json`)
+- **比較レポート PDF** (`comparison_report.pdf`): フェーズ別の 2列並置画像、数値差分テーブル、グラフ比較を収録。すべて非断定的な表現を使用
+- **比較パッケージ ZIP** (`comparison_package.zip`): レポート・画像・グラフ・サマリーを整理した ZIP
+- **管理画面の比較タブ強化**: 比較ジョブ作成・一覧・レポート生成・ZIP 生成・ダウンロードを一括管理
+
+#### プラン更新
+- `comparison` プランに `phase_summary_pdf` / `comparison_phase_images` を追加
+
+### Phase 4 で追加・変更されたファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `configs/phases.yaml` | フェーズ定義 YAML（新規） |
+| `configs/plans.yaml` | comparison プラン更新 |
+| `src/phase_loader.py` | phases.yaml ローダー（新規） |
+| `src/phase_frames.py` | フェーズ別フレーム抽出（新規） |
+| `src/phase_summary_pdf.py` | フェーズ別サマリー PDF（新規） |
+| `src/comparison_report_pdf.py` | 2動画比較レポート PDF（新規） |
+| `src/comparison_zip.py` | 比較パッケージ ZIP 生成（新規） |
+| `job_manager.py` | フェーズフレーム・比較ジョブ管理関数を追加 |
+| `admin_app.py` | O. フェーズ指定セクション、比較タブ UI 強化 |
+| `tests/test_phase4.py` | Phase 4 ユニットテスト（新規） |
+

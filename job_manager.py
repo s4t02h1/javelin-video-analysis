@@ -17,6 +17,7 @@ src/job_manager.py — Javelin Video Analysis ジョブ管理モジュール
 
 import json
 import random
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -422,4 +423,212 @@ def update_delivery_checklist(job_id: str, **kwargs) -> dict:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(chk, f, ensure_ascii=False, indent=2)
     return chk
+
+
+# ── フェーズフレーム情報 (phase_frames.json) ──────────────────────────────────
+#
+# 各フェーズのフレーム番号（と秒数）を手動で指定するための JSON。
+# フォーマット（例）:
+#   {
+#     "approach_start_frame": 10,  "approach_start_sec": 0.33,
+#     "approach_end_frame":   80,  "approach_end_sec":   2.67,
+#     "block_frame":          120, "block_sec":          4.00,
+#     "release_frame":        145, "release_sec":        4.83,
+#     ...
+#     "fps": 30.0,
+#     "total_frames": 200,
+#     "updated_at": "2026-05-10T12:00:00"
+#   }
+#
+# is_range=True のフェーズ: <key>_start_frame / <key>_end_frame
+# is_range=False のフェーズ: <key>_frame
+# 秒数は _sec サフィックス（フレーム番号から自動計算・保存）
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PHASE_FRAMES_DEFAULTS: dict = {
+    # approach (range)
+    "approach_start_frame":      None,
+    "approach_end_frame":        None,
+    # cross_step (range)
+    "cross_step_start_frame":    None,
+    "cross_step_end_frame":      None,
+    # withdrawal (range)
+    "withdrawal_start_frame":    None,
+    "withdrawal_end_frame":      None,
+    # block (single)
+    "block_frame":               None,
+    # release (single)
+    "release_frame":             None,
+    # follow_through (range)
+    "follow_through_start_frame": None,
+    "follow_through_end_frame":   None,
+    # recovery (range)
+    "recovery_start_frame":      None,
+    "recovery_end_frame":        None,
+    # 動画メタ（フレーム番号→秒数変換に使う）
+    "fps":                       None,
+    "total_frames":              None,
+    "duration_sec":              None,
+    # タイムスタンプ
+    "updated_at":                "",
+}
+
+
+def _phase_frames_path(job_id: str) -> Path:
+    return JOBS_DIR / job_id / "phase_frames.json"
+
+
+def get_phase_frames(job_id: str) -> dict:
+    """phase_frames.json を読み込んで返す。なければデフォルトを返す。"""
+    import logging as _log
+    path = _phase_frames_path(job_id)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+            return {**_PHASE_FRAMES_DEFAULTS, **data}
+        except (json.JSONDecodeError, OSError) as _e:
+            _log.warning("[job_manager] phase_frames.json 読み込み失敗 (%s): %s", job_id, _e)
+    return dict(_PHASE_FRAMES_DEFAULTS)
+
+
+def _compute_sec(frame: Optional[int], fps: Optional[float]) -> Optional[float]:
+    """フレーム番号と FPS から秒数を計算する。"""
+    if frame is None or fps is None or fps <= 0:
+        return None
+    return round(frame / fps, 3)
+
+
+def update_phase_frames(job_id: str, **kwargs) -> dict:
+    """phase_frames.json を更新して保存する。
+
+    フレーム番号が指定された場合、対応する _sec フィールドも自動計算する。
+    """
+    pf = get_phase_frames(job_id)
+    pf.update(kwargs)
+    pf["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+    # _sec フィールドを自動計算
+    fps = pf.get("fps")
+    for key in list(pf.keys()):
+        if key.endswith("_frame") and not key.endswith("_start_frame") and not key.endswith("_end_frame"):
+            sec_key = key[:-len("_frame")] + "_sec"
+            pf[sec_key] = _compute_sec(pf[key], fps)
+        elif key.endswith("_start_frame"):
+            sec_key = key[:-len("_frame")] + "_sec"
+            pf[sec_key] = _compute_sec(pf[key], fps)
+        elif key.endswith("_end_frame"):
+            sec_key = key[:-len("_frame")] + "_sec"
+            pf[sec_key] = _compute_sec(pf[key], fps)
+
+    path = _phase_frames_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(pf, f, ensure_ascii=False, indent=2)
+    return pf
+
+
+# ── 比較ジョブ (comparisons/<comparison_id>/comparison.json) ─────────────────
+#
+# 比較ジョブは既存ジョブとは別に JOBS_DIR/../comparisons/ に保存する。
+# 既存ジョブのデータを変更しない（非破壊設計）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+COMPARISONS_DIR = _REPO_ROOT / "comparisons"
+
+_COMPARISON_DEFAULTS: dict = {
+    "comparison_id":    "",
+    "job_a_id":         "",
+    "job_b_id":         "",
+    "label_a":          "動画A",   # 例: 改善前 / 試合1本目 / 成功投てき
+    "label_b":          "動画B",   # 例: 改善後 / 試合2本目 / 失敗投てき
+    "purpose":          "",        # 比較目的（自由記述）
+    "admin_memo":       "",
+    "status":           "created", # created / report_generated / delivered
+    "created_at":       "",
+    "updated_at":       "",
+}
+
+
+def _comparison_path(comparison_id: str) -> Path:
+    return COMPARISONS_DIR / comparison_id / "comparison.json"
+
+
+def create_comparison(job_a_id: str, job_b_id: str, **kwargs) -> dict:
+    """新しい比較ジョブを作成して保存し、comparison dict を返す。
+
+    Parameters
+    ----------
+    job_a_id : str   比較元ジョブ ID
+    job_b_id : str   比較先ジョブ ID
+    **kwargs         label_a / label_b / purpose / admin_memo など上書き値
+    """
+    now = datetime.now().isoformat(timespec="seconds")
+    cid = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{uuid.uuid4().hex[:4]}_cmp"
+    comp: dict = {
+        **_COMPARISON_DEFAULTS,
+        "comparison_id": cid,
+        "job_a_id":      job_a_id,
+        "job_b_id":      job_b_id,
+        "created_at":    now,
+        "updated_at":    now,
+    }
+    comp.update(kwargs)
+    path = _comparison_path(cid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(comp, f, ensure_ascii=False, indent=2)
+    return comp
+
+
+def load_comparison(comparison_id: str) -> dict:
+    """comparison.json を読み込んで dict を返す。"""
+    import logging as _log
+    path = _comparison_path(comparison_id)
+    if not path.exists():
+        raise FileNotFoundError(f"比較ジョブが見つかりません: {path}")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {**_COMPARISON_DEFAULTS, **data}
+    except (json.JSONDecodeError, OSError) as _e:
+        _log.warning("[job_manager] comparison.json 読み込み失敗 (%s): %s", comparison_id, _e)
+        raise
+
+
+def update_comparison(comparison_id: str, **kwargs) -> dict:
+    """比較ジョブを更新して保存する。"""
+    comp = load_comparison(comparison_id)
+    comp.update(kwargs)
+    comp["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = _comparison_path(comparison_id)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(comp, f, ensure_ascii=False, indent=2)
+    return comp
+
+
+def list_comparisons() -> list[dict]:
+    """全比較ジョブを新しい順に返す。読み込み失敗は無視する。"""
+    if not COMPARISONS_DIR.exists():
+        return []
+    result: list[dict] = []
+    for cdir in COMPARISONS_DIR.iterdir():
+        if not cdir.is_dir():
+            continue
+        cjson = cdir / "comparison.json"
+        if cjson.exists():
+            try:
+                with open(cjson, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                result.append({**_COMPARISON_DEFAULTS, **data})
+            except Exception:
+                pass
+    result.sort(key=lambda c: c.get("created_at", ""), reverse=True)
+    return result
+
+
+def get_comparison_dir(comparison_id: str) -> Path:
+    """比較ジョブディレクトリの Path を返す。"""
+    return COMPARISONS_DIR / comparison_id
+
 
