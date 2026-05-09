@@ -105,7 +105,8 @@ def _gen_button(
         else:
             st.error(_r["msg"])
             if _r.get("tb"):
-                st.code(_r["tb"], language="python")
+                with st.expander("エラー詳細", expanded=False):
+                    st.code(_r["tb"], language="python")
 
     if st.button(f"🔄 {label}", key=btn_key):
         with st.spinner(spinner_text):
@@ -379,7 +380,7 @@ def build_delivery_message(
             f"{greeting}\n"
             f"{event}の動画解析「無料プレビュー版」が完成しました。\n"
             "\n"
-            "まず ZIP ファイルの中の「**00_最初に読んでください.pdf**」をご覧ください。"
+            "まず ZIP ファイルの中の「00_最初に読んでください.pdf」をご覧ください。"
             "ファイル構成・見方の説明が書いてあります。\n"
             "\n"
             "解析動画と代表フレーム画像が含まれています。動画は各アングルの動きをご確認いただけます。\n"
@@ -398,7 +399,7 @@ def build_delivery_message(
             f"{greeting}\n"
             f"{event}の動画解析「有料データシート版」が完成しました。\n"
             "\n"
-            "まず ZIP の「**00_最初に読んでください.pdf**」をご覧ください。\n"
+            "まず ZIP の「00_最初に読んでください.pdf」をご覧ください。\n"
             "\n"
             "今回の内容:\n"
             "・解析動画（全バリエーション）\n"
@@ -420,7 +421,7 @@ def build_delivery_message(
             f"{greeting}\n"
             f"{event}の動画解析「有料フルレポート版」が完成しました。\n"
             "\n"
-            "まず ZIP の「**00_最初に読んでください.pdf**」をご覧ください。\n"
+            "まず ZIP の「00_最初に読んでください.pdf」をご覧ください。\n"
             "\n"
             "今回の内容:\n"
             "・PDFレポート（詳細解析）\n"
@@ -898,6 +899,8 @@ with tab_history:
                 with _qbtn3:
                     if st.button("🔄 エラーをリセット", key=f"btn_reset_err_{selected_id}", use_container_width=True):
                         update_job(selected_id, status="completed", error=None)
+                        from src.job_logger import log_status_change
+                        log_status_change(selected_id, _current_status, "completed")
                         st.rerun()
                 with _qbtn4:
                     if st.button("📂 アーカイブ", key=f"btn_archive_{selected_id}", use_container_width=True):
@@ -1771,9 +1774,10 @@ with tab_history:
                         else:
                             st.error(_zr["msg"])
                             if _zr.get("tb"):
-                                st.code(_zr["tb"], language="python")
-                    if st.button("🗜️ ZIPを全て生成・更新", key=f"gen_zip_{job['job_id']}",
-                                 use_container_width=True):
+                                with st.expander("エラー詳細", expanded=False):
+                                    st.code(_zr["tb"], language="python")
+                    if st.button("🗜️ 納品ZIPを一括再生成", key=f"gen_zip_{job['job_id']}",
+                                 type="primary", use_container_width=True):
                         with st.spinner("ZIP を生成中..."):
                             import traceback as _tb_mod
                             try:
@@ -1781,6 +1785,9 @@ with tab_history:
                                     create_deliverable_packages_for_job,
                                 )
                                 _zips = create_deliverable_packages_for_job(_job_dir)
+                                from src.job_logger import log_zip_generated
+                                for _zp_generated in _zips:
+                                    log_zip_generated(selected_id, Path(_zp_generated).name)
                                 st.session_state[_zip_state_key] = {
                                     "ok": True,
                                     "msg": f"✅ 生成完了: {len(_zips)} 件",
@@ -1814,7 +1821,7 @@ with tab_history:
                         "subtitle":  "Free Preview Package",
                         "purpose":   "SNSでシェアする前の確認・無料体験として納品",
                         "contents":  [
-                            "� 00_最初に読んでください.pdf",
+                            "📋 00_最初に読んでください.pdf",
                             "📹 01_解析動画/（プレビュー動画）",
                             "📖 解析動画の見方.pdf",
                             "🖼️ 02_代表フレーム画像/（先頭3枚）",
