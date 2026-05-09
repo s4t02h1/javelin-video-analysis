@@ -610,6 +610,113 @@ def _build_coach_comment(customer_info: dict, styles: dict) -> List:
     return story
 
 
+def _build_analysis_summary_json_section(report_dir: Path, styles: dict) -> List:
+    """
+    report/analysis_summary.json が存在すれば「Analysis Summary」ページを生成する。
+
+    存在しない場合は空リストを返す（PDF 生成全体を止めない）。
+    """
+    summary_path = report_dir / "analysis_summary.json"
+    if not summary_path.exists():
+        return []
+
+    summary = _load_json(summary_path)
+    if not summary:
+        return []
+
+    # status == "skipped" のときも簡易表示する
+    story: List = []
+    story.append(Paragraph("Analysis Summary", styles["section_heading"]))
+    story.extend(_hr(styles))
+
+    status = summary.get("status", "unknown")
+    if status == "skipped":
+        reason = summary.get("reason", "—")
+        story.append(Paragraph(f"Status: skipped  —  {reason}", styles["body_sm"]))
+        story.append(PageBreak())
+        return story
+
+    # ── Video Info ───────────────────────────────────────────────────────────
+    video = summary.get("video", {})
+    duration   = video.get("duration_sec")
+    frame_cnt  = video.get("frame_count")
+    duration_str   = f"{duration:.3f} sec" if isinstance(duration, (int, float)) else "—"
+    frame_cnt_str  = str(frame_cnt) if frame_cnt is not None else "—"
+
+    # ── Key Metrics ──────────────────────────────────────────────────────────
+    km = summary.get("key_metrics", {})
+    max_h_time = km.get("right_wrist_max_height_time_sec")
+    max_h_norm = km.get("right_wrist_max_height_norm")
+    torso_start = km.get("torso_center_x_start")
+    torso_end   = km.get("torso_center_x_end")
+
+    max_h_time_str  = f"{max_h_time:.3f} sec" if isinstance(max_h_time, (int, float)) else "—"
+    max_h_norm_str  = f"{max_h_norm:.4f}"      if isinstance(max_h_norm, (int, float)) else "—"
+    torso_start_str = f"{torso_start:.4f}"     if isinstance(torso_start, (int, float)) else "—"
+    torso_end_str   = f"{torso_end:.4f}"       if isinstance(torso_end,   (int, float)) else "—"
+
+    # ── Pose Quality ─────────────────────────────────────────────────────────
+    pq = summary.get("pose_quality", {})
+    missing_ratio = pq.get("right_wrist_missing_ratio")
+    missing_str   = (
+        f"{missing_ratio * 100:.1f}%"
+        if isinstance(missing_ratio, (int, float))
+        else "—"
+    )
+
+    avg_vis: dict = pq.get("average_visibility") or {}
+
+    def _vis_str(key: str) -> str:
+        v = avg_vis.get(key)
+        return f"{v:.3f}" if isinstance(v, (int, float)) else "—"
+
+    story.append(Paragraph("Video", styles["label"]))
+    story.append(_kv_table([
+        ("Duration",     duration_str),
+        ("Frame count",  frame_cnt_str),
+    ], styles))
+    story.append(Spacer(1, 0.3 * cm))
+
+    story.append(Paragraph("Key Metrics", styles["label"]))
+    story.append(_kv_table([
+        ("Right wrist max height (time)",  max_h_time_str),
+        ("Right wrist max height (norm)",  max_h_norm_str),
+        ("Torso center X (start)",         torso_start_str),
+        ("Torso center X (end)",           torso_end_str),
+    ], styles))
+    story.append(Spacer(1, 0.3 * cm))
+
+    story.append(Paragraph("Pose Quality", styles["label"]))
+    story.append(_kv_table([
+        ("Right wrist missing ratio",    missing_str),
+        ("Avg visibility: right_shoulder", _vis_str("right_shoulder")),
+        ("Avg visibility: right_elbow",    _vis_str("right_elbow")),
+        ("Avg visibility: right_wrist",    _vis_str("right_wrist")),
+        ("Avg visibility: left_shoulder",  _vis_str("left_shoulder")),
+        ("Avg visibility: left_elbow",     _vis_str("left_elbow")),
+        ("Avg visibility: left_wrist",     _vis_str("left_wrist")),
+    ], styles))
+    story.append(Spacer(1, 0.3 * cm))
+
+    # ── Warnings ─────────────────────────────────────────────────────────────
+    warnings: list = summary.get("warnings") or []
+    if warnings:
+        story.append(Paragraph("Warnings", styles["label"]))
+        for w in warnings:
+            story.append(Paragraph(f"  • {w}", styles["body_sm"]))
+        story.append(Spacer(1, 0.2 * cm))
+
+    # ── Note ─────────────────────────────────────────────────────────────────
+    note = (
+        "Note: This analysis is for visualization support only. "
+        "It is not a coaching diagnosis or medical assessment."
+    )
+    story.append(Paragraph(note, styles["body_sm"]))
+
+    story.append(PageBreak())
+    return story
+
+
 def _build_disclaimer(styles: dict) -> List:
     story = []
     story.append(Paragraph("注意事項・免責事項  /  Notes & Disclaimer", styles["section_heading"]))
@@ -691,6 +798,10 @@ def generate_pdf_report_for_job(job_dir: Path) -> Path:
     except Exception as _ce:
         logger.warning("[pdf_report_generator] coach comment section skipped: %s", _ce)
     story.extend(_build_analysis_summary(job, rep, report_dir, styles))
+    try:
+        story.extend(_build_analysis_summary_json_section(report_dir, styles))
+    except Exception as _ase:
+        logger.warning("[pdf_report_generator] analysis summary JSON section skipped: %s", _ase)
     story.extend(_build_frames_pages(report_dir, styles, images_per_page=4))
     story.extend(_build_graphs_pages(report_dir, styles, images_per_page=2))
     story.extend(_build_disclaimer(styles))

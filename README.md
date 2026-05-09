@@ -140,18 +140,21 @@ cd javelin-video-analysis
 pip install -r requirements.txt
 ```
 
-### 基本使用法（既存機能のみ）
+### 基本使用法（標準形式）
 
 ```bash
-# 基本の骨格表示（後方互換モード）
-python run.py --video input.mp4 --output output.mp4
+# 標準形式（推奨）
+python run.py --input input/sample.mp4 --output-dir output --all-variants --height-m 1.80
+
+# 後方互換: --video / --output も引き続き使用可能
+python run.py --video input/sample.mp4 --output output/analysis.mp4 --all-variants
 ```
 
 ### 新機能を使用した解析
 
 ```bash
 # ベクトルとヒートマップを追加
-python run.py --video input.mp4 --output output.mp4 --vectors --heatmap
+python run.py --input input/sample.mp4 --output-dir output --vectors --heatmap
 
 # 🚀 超簡単スタート（input/フォルダの動画を自動選択）
 python run.py --vectors --heatmap --hud
@@ -160,12 +163,12 @@ python run.py --vectors --heatmap --hud
 python run.py --all-variants --height-m 1.80
 
 # すべての可視化機能を有効化
-python run.py --video input/javelin_video.mp4 --output output/analysis.mp4 \
+python run.py --input input/javelin_video.mp4 --output-dir output \
   --vectors --heatmap --hud --wrist-trail --glow-trail \
   --height-m 1.80
 
 # Blender 3D連携
-python run.py --video input/javelin_video.mp4 --output output/analyzed.mp4 \
+python run.py --input input/javelin_video.mp4 --output-dir output \
   --vectors --heatmap --export-landmarks output/landmarks.json --blender-overlay
 ```
 
@@ -686,11 +689,11 @@ streamlit run admin_app.py --server.address 127.0.0.1 --server.port 8501
 `run.py` に以下のオプションを追加しました。既存の動作は変わりません。
 
 ```bash
-# --input: --video の別名（admin_app.py がジョブパスを渡す際に使用）
+# 標準形式（admin_app.py が使用する形式）
 python run.py --input jobs/20260508_143022_a3f1/input/original.mp4 \
               --output-dir jobs/20260508_143022_a3f1/output
 
-# 従来の --video も引き続き使用可能
+# 後方互換: --video も引き続き使用可能
 python run.py --video input/my_video.mp4
 ```
 

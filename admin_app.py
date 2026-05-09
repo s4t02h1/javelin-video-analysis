@@ -235,10 +235,22 @@ def build_delivery_message(
     str
         コピペ用の納品メッセージ文。
     """
-    name: str  = customer_info.get("customer_name") or ""
-    event: str = customer_info.get("event") or "javelin"
+    name: str   = customer_info.get("customer_name") or ""
+    event: str  = customer_info.get("event") or "javelin"
+    plan: str   = customer_info.get("plan") or "free_preview"
+    paid: str   = customer_info.get("payment_status") or "unpaid"
+    social: str = customer_info.get("permission_for_social_post") or "unknown"
+    arm: str    = customer_info.get("dominant_arm") or customer_info.get("dominant_hand") or "unknown"
+    angle: str  = customer_info.get("filming_angle") or customer_info.get("camera_angle") or "unknown"
 
     greeting = f"{name}様、お待たせいたしました！" if name else "お待たせいたしました！"
+
+    # SNS掲載許可の補足
+    _social_note = ""
+    if social == "yes":
+        _social_note = "\nなお、解析結果をSNSの参考資料として掲載させていただく場合がございます。"
+    elif social == "no":
+        _social_note = "\nSNS等への掲載はいたしません。"
 
     if package_type == "free_preview":
         return (
@@ -249,10 +261,15 @@ def build_delivery_message(
             "動きの軌跡やタイミングを見返しやすくするための可視化資料です。\n"
             "\n"
             "必要であれば、CSVデータ・グラフ・PDFレポートを含む詳細版も作成できます。"
-            "お気軽にお申し付けください。"
+            f"お気軽にお申し付けください。{_social_note}"
         )
 
     elif package_type == "data_sheet":
+        _payment_note = ""
+        if paid == "unpaid":
+            _payment_note = "\n\n※ お支払いがまだの場合は、お支払い方法をご確認の上ご連絡ください。"
+        elif paid == "paid":
+            _payment_note = "\n\nお支払いの確認が取れております。ありがとうございます。"
         return (
             f"{greeting}\n"
             f"{event}の右手首の高さ変化、腕の軌道、代表フレーム、"
@@ -260,17 +277,22 @@ def build_delivery_message(
             "\n"
             "練習の振り返りや指導者との共有に使いやすい内容です。\n"
             "\n"
-            "フルレポート（PDF＋全動画）もご希望の場合はお申し付けください。"
+            f"フルレポート（PDF＋全動画）もご希望の場合はお申し付けください。{_payment_note}{_social_note}"
         )
 
     elif package_type == "full_report":
+        _payment_note = ""
+        if paid == "unpaid":
+            _payment_note = "\n\n※ お支払いがまだの場合は、お支払い方法をご確認の上ご連絡ください。"
+        elif paid == "paid":
+            _payment_note = "\n\nお支払いの確認が取れております。ありがとうございます。"
         return (
             f"{greeting}\n"
             f"{event}の「有料フルレポート版」が完成しました。\n"
             "\n"
             "PDFレポート、解析動画、CSV、グラフ、代表フレームをまとめたフルセットです。\n"
             "\n"
-            "あくまで参考資料として、今後の練習の振り返りにご活用ください。"
+            f"あくまで参考資料として、今後の練習の振り返りにご活用ください。{_payment_note}{_social_note}"
         )
 
     else:
@@ -668,9 +690,14 @@ with tab_history:
             # ══════════════════════════════════════════════════════════════            # G. Customer Info（顧客情報）
             # ══════════════════════════════════════════════════════════════════
             with st.expander("👤 G. 顧客情報 / Customer Info", expanded=True):
-                _ci = get_customer_info(selected_id)
+                try:
+                    _ci = get_customer_info(selected_id)
+                except Exception as _ci_err:
+                    st.warning(f"⚠️ customer_info.json の読み込みに失敗しました: {_ci_err}")
+                    _ci = {}
                 with st.form(key=f"ci_form_{selected_id}"):
-                    _ci_c1, _ci_c2 = st.columns(2)
+                    # ── 行1: 基本情報 ──
+                    _ci_c1, _ci_c2, _ci_c3 = st.columns(3)
                     with _ci_c1:
                         _ci_name = st.text_input(
                             "顧客名", value=_ci.get("customer_name", "")
@@ -682,39 +709,70 @@ with tab_history:
                             "種目", value=_ci.get("event", "javelin")
                         )
                     with _ci_c2:
-                        _hand_opts = ["right", "left", "unknown"]
-                        _hand_labels = {"right": "右 (right)", "left": "左 (left)", "unknown": "不明 (unknown)"}
-                        _ci_hand = st.selectbox(
-                            "利き腕",
-                            options=_hand_opts,
-                            format_func=lambda x: _hand_labels[x],
-                            index=_hand_opts.index(
-                                _ci.get("dominant_hand", "unknown")
-                                if _ci.get("dominant_hand") in _hand_opts else "unknown"
-                            ),
+                        _arm_opts = ["right", "left", "unknown"]
+                        _arm_labels = {"right": "右 (right)", "left": "左 (left)", "unknown": "不明 (unknown)"}
+                        _ci_arm_val = _ci.get("dominant_arm") or _ci.get("dominant_hand", "unknown")
+                        _ci_arm = st.selectbox(
+                            "利き腕 (dominant_arm)",
+                            options=_arm_opts,
+                            format_func=lambda x: _arm_labels[x],
+                            index=_arm_opts.index(_ci_arm_val if _ci_arm_val in _arm_opts else "unknown"),
+                        )
+                        _ci_height = st.number_input(
+                            "身長 (m)",
+                            min_value=0.0,
+                            max_value=2.5,
+                            value=float(_ci.get("height_m") or 0.0),
+                            step=0.01,
+                            format="%.2f",
+                            help="0.00 は未設定扱いです",
                         )
                         _angle_opts = ["side", "back", "front", "diagonal", "unknown"]
-                        _angle_labels = {"side": "側面 (side)", "back": "後方 (back)", "front": "正面 (front)", "diagonal": "斜め (diagonal)", "unknown": "不明 (unknown)"}
+                        _angle_labels = {
+                            "side": "側面 (side)", "back": "後方 (back)",
+                            "front": "正面 (front)", "diagonal": "斜め (diagonal)",
+                            "unknown": "不明 (unknown)",
+                        }
+                        _ci_angle_val = _ci.get("filming_angle") or _ci.get("camera_angle", "unknown")
                         _ci_angle = st.selectbox(
-                            "撮影方向",
+                            "撮影方向 (filming_angle)",
                             options=_angle_opts,
                             format_func=lambda x: _angle_labels[x],
-                            index=_angle_opts.index(
-                                _ci.get("camera_angle", "unknown")
-                                if _ci.get("camera_angle") in _angle_opts else "unknown"
-                            ),
+                            index=_angle_opts.index(_ci_angle_val if _ci_angle_val in _angle_opts else "unknown"),
                         )
-                        _paid_opts = ["unknown", "free", "data_sheet", "full_report"]
-                        _paid_labels = {"unknown": "未設定", "free": "無料", "data_sheet": "データシート", "full_report": "フルレポート"}
-                        _ci_paid = st.selectbox(
-                            "有料ステータス",
-                            options=_paid_opts,
-                            format_func=lambda x: _paid_labels[x],
-                            index=_paid_opts.index(
-                                _ci.get("paid_status", "unknown")
-                                if _ci.get("paid_status") in _paid_opts else "unknown"
-                            ),
+                    with _ci_c3:
+                        _social_opts = ["yes", "no", "unknown"]
+                        _social_labels = {"yes": "許可 (yes)", "no": "不許可 (no)", "unknown": "未確認 (unknown)"}
+                        _ci_social_val = _ci.get("permission_for_social_post", "unknown")
+                        _ci_social = st.selectbox(
+                            "SNS掲載許可",
+                            options=_social_opts,
+                            format_func=lambda x: _social_labels[x],
+                            index=_social_opts.index(_ci_social_val if _ci_social_val in _social_opts else "unknown"),
                         )
+                        _plan_opts = ["free_preview", "data_sheet", "full_report"]
+                        _plan_labels = {
+                            "free_preview": "無料プレビュー",
+                            "data_sheet":   "データシート",
+                            "full_report":  "フルレポート",
+                        }
+                        _ci_plan_val = _ci.get("plan", "free_preview")
+                        _ci_plan = st.selectbox(
+                            "プラン (plan)",
+                            options=_plan_opts,
+                            format_func=lambda x: _plan_labels[x],
+                            index=_plan_opts.index(_ci_plan_val if _ci_plan_val in _plan_opts else "free_preview"),
+                        )
+                        _pstatus_opts = ["unpaid", "paid", "free"]
+                        _pstatus_labels = {"unpaid": "未払い (unpaid)", "paid": "支払済み (paid)", "free": "無料 (free)"}
+                        _ci_pstatus_val = _ci.get("payment_status", "unpaid")
+                        _ci_pstatus = st.selectbox(
+                            "支払いステータス (payment_status)",
+                            options=_pstatus_opts,
+                            format_func=lambda x: _pstatus_labels[x],
+                            index=_pstatus_opts.index(_ci_pstatus_val if _ci_pstatus_val in _pstatus_opts else "unpaid"),
+                        )
+                    # ── 行2: 納品ステータス ──
                     _dstatus_opts = ["not_started", "analyzed", "preview_delivered", "paid_delivered", "completed"]
                     _dstatus_labels = {
                         "not_started":       "未着手",
@@ -732,15 +790,22 @@ with tab_history:
                             if _ci.get("delivery_status") in _dstatus_opts else "not_started"
                         ),
                     )
-                    _ci_note = st.text_area(
-                        "相談内容メモ", value=_ci.get("request_note", ""), height=100
-                    )
-                    _ci_coach = st.text_area(
-                        "💬 コーチコメント (PDFに掲載)",
-                        value=_ci.get("coach_comment", ""),
-                        height=120,
-                        help="英数字・記号はPDFにそのまま恣示されます。日本語は現在 '?' に置換されます（フォント対応中）。",
-                    )
+                    # ── 行3: メモ ──
+                    _note_c1, _note_c2 = st.columns(2)
+                    with _note_c1:
+                        _ci_notes = st.text_area(
+                            "メモ (notes)",
+                            value=_ci.get("notes", "") or _ci.get("request_note", ""),
+                            height=100,
+                            help="相談内容・要望など自由記述",
+                        )
+                    with _note_c2:
+                        _ci_coach = st.text_area(
+                            "💬 コーチコメント (PDFに掲載)",
+                            value=_ci.get("coach_comment", ""),
+                            height=100,
+                            help="英数字・記号はPDFにそのまま表示されます。日本語は現在 '?' に置換されます（フォント対応中）。",
+                        )
                     _ci_save = st.form_submit_button("💾 顧客情報を保存", type="primary")
                     if _ci_save:
                         update_customer_info(
@@ -748,17 +813,22 @@ with tab_history:
                             customer_name=_ci_name,
                             instagram_id=_ci_ig,
                             event=_ci_event,
-                            dominant_hand=_ci_hand,
-                            camera_angle=_ci_angle,
-                            paid_status=_ci_paid,
+                            dominant_arm=_ci_arm,
+                            dominant_hand=_ci_arm,   # 旧フィールドも同期
+                            height_m=_ci_height if _ci_height > 0 else None,
+                            filming_angle=_ci_angle,
+                            camera_angle=_ci_angle,  # 旧フィールドも同期
+                            permission_for_social_post=_ci_social,
+                            plan=_ci_plan,
+                            payment_status=_ci_pstatus,
                             delivery_status=_ci_dstatus,
-                            request_note=_ci_note,
+                            notes=_ci_notes,
+                            request_note=_ci_notes,  # 旧フィールドも同期
                             coach_comment=_ci_coach,
                         )
                         st.success("保存しました。")
                         st.rerun()
                 st.caption(
-                    f"height_m: {_ci.get('height_m', '—')}  ·  "
                     f"created_at: {_ci.get('created_at', '—')}  ·  "
                     f"updated_at: {_ci.get('updated_at', '—')}"
                 )
@@ -992,59 +1062,146 @@ with tab_history:
                             f"⚠️ スキップ: {_summary.get('reason', '不明な理由')}"
                         )
                     else:
-                        # ── メトリクスカード ────────────────────────────────
-                        _sc1, _sc2, _sc3, _sc4 = st.columns(4)
-                        _sc1.metric(
-                            "総フレーム数",
-                            f"{_summary.get('total_frames', '—'):,}" if _summary.get('total_frames') is not None else "—",
-                        )
-                        _sc2.metric(
-                            "動画尺",
-                            f"{_summary.get('duration_sec', '—')} 秒" if _summary.get('duration_sec') is not None else "—",
-                        )
-                        _sc3.metric(
-                            "推定 FPS",
-                            f"{_summary.get('fps_estimated', '—')}" if _summary.get('fps_estimated') is not None else "—",
-                        )
-                        _sc4.metric(
-                            "利き腕",
-                            str(_summary.get('dominant_hand', '—')).capitalize(),
-                        )
+                        # ── 新形式 (video / pose_quality / key_metrics) の判定 ──
+                        _is_new_fmt = "video" in _summary and "key_metrics" in _summary
 
-                        st.markdown("**手首高さ（投げ腕）**")
-                        _wc1, _wc2, _wc3 = st.columns(3)
-                        _wc1.metric("最小", f"{_summary.get('wrist_height_min', '—')}")
-                        _wc2.metric("最大", f"{_summary.get('wrist_height_max', '—')}")
-                        _wc3.metric("可動域", f"{_summary.get('wrist_height_range', '—')}")
+                        if _is_new_fmt:
+                            # ── 新形式メトリクス表示 ──────────────────────────
+                            _vid   = _summary.get("video", {})
+                            _km    = _summary.get("key_metrics", {})
+                            _pq    = _summary.get("pose_quality", {})
+                            _warns = _summary.get("warnings") or []
 
-                        _wp_frame = _summary.get('wrist_height_peak_frame')
-                        _wp_time  = _summary.get('wrist_height_peak_time_sec')
-                        if _wp_frame is not None:
-                            st.caption(
-                                f"ピーク: フレーム {_wp_frame}"
-                                + (f"  /  {_wp_time} 秒" if _wp_time is not None else "")
+                            # 行1: ビデオ基本情報
+                            _nc1, _nc2 = st.columns(2)
+                            _nc1.metric(
+                                "総フレーム数",
+                                f"{_vid.get('frame_count', '—'):,}"
+                                if isinstance(_vid.get('frame_count'), int) else "—",
+                            )
+                            _dur = _vid.get("duration_sec")
+                            _nc2.metric(
+                                "動画尺",
+                                f"{_dur:.3f} 秒" if isinstance(_dur, (int, float)) else "—",
                             )
 
-                        st.markdown("**重心移動（X 軸, 0=左端 / 1=右端）**")
-                        _gc1, _gc2 = st.columns(2)
-                        with _gc1:
-                            st.caption("肩中心")
-                            _sc_s = _summary.get('shoulder_center_x_start')
-                            _sc_e = _summary.get('shoulder_center_x_end')
-                            st.write(
-                                f"開始: `{_sc_s}`  →  終了: `{_sc_e}`"
-                                + (f"  （移動: `{round(_sc_e - _sc_s, 4)}`）"
-                                   if _sc_s is not None and _sc_e is not None else "")
+                            st.markdown("**Key Metrics — 右手首**")
+                            _kc1, _kc2 = st.columns(2)
+                            _mht = _km.get("right_wrist_max_height_time_sec")
+                            _mhn = _km.get("right_wrist_max_height_norm")
+                            _kc1.metric(
+                                "最高到達時刻",
+                                f"{_mht:.3f} 秒" if isinstance(_mht, (int, float)) else "—",
                             )
-                        with _gc2:
-                            st.caption("腰中心")
-                            _hc_s = _summary.get('hip_center_x_start')
-                            _hc_e = _summary.get('hip_center_x_end')
-                            st.write(
-                                f"開始: `{_hc_s}`  →  終了: `{_hc_e}`"
-                                + (f"  （移動: `{round(_hc_e - _hc_s, 4)}`）"
-                                   if _hc_s is not None and _hc_e is not None else "")
+                            _kc2.metric(
+                                "最高到達高さ (norm)",
+                                f"{_mhn:.4f}" if isinstance(_mhn, (int, float)) else "—",
+                                help="MediaPipe 正規化座標で 1 - y（1 = 画面上端）",
                             )
+
+                            _tc_s = _km.get("torso_center_x_start")
+                            _tc_e = _km.get("torso_center_x_end")
+                            if _tc_s is not None or _tc_e is not None:
+                                st.caption(
+                                    f"胴体中心 X: 開始 `{_tc_s}`  →  終了 `{_tc_e}`"
+                                    + (
+                                        f"  （移動: `{round(_tc_e - _tc_s, 4)}`）"
+                                        if _tc_s is not None and _tc_e is not None
+                                        else ""
+                                    )
+                                )
+
+                            st.markdown("**Pose Quality**")
+                            _mr = _pq.get("right_wrist_missing_ratio")
+                            _mr_pct = (
+                                f"{_mr * 100:.1f}%"
+                                if isinstance(_mr, (int, float))
+                                else "—"
+                            )
+                            st.write(f"右手首 欠損率: **{_mr_pct}**")
+
+                            _avg_vis: dict = _pq.get("average_visibility") or {}
+                            if _avg_vis:
+                                _vis_cols = [
+                                    "right_shoulder", "right_elbow", "right_wrist",
+                                    "left_shoulder",  "left_elbow",  "left_wrist",
+                                ]
+                                _vis_data = {
+                                    k: (f"{v:.3f}" if isinstance(v, (int, float)) else "—")
+                                    for k, v in _avg_vis.items()
+                                    if k in _vis_cols
+                                }
+                                if _vis_data:
+                                    import pandas as _pd_tmp
+                                    st.dataframe(
+                                        _pd_tmp.DataFrame(
+                                            [_vis_data],
+                                            index=["avg visibility"],
+                                        ),
+                                        use_container_width=True,
+                                    )
+
+                            if _warns:
+                                with st.expander(
+                                    f"⚠️ Warnings ({len(_warns)} 件)", expanded=False
+                                ):
+                                    for _w in _warns:
+                                        st.write(f"- {_w}")
+
+                        else:
+                            # ── 旧形式メトリクスカード ─────────────────────────
+                            _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+                            _sc1.metric(
+                                "総フレーム数",
+                                f"{_summary.get('total_frames', '—'):,}" if _summary.get('total_frames') is not None else "—",
+                            )
+                            _sc2.metric(
+                                "動画尺",
+                                f"{_summary.get('duration_sec', '—')} 秒" if _summary.get('duration_sec') is not None else "—",
+                            )
+                            _sc3.metric(
+                                "推定 FPS",
+                                f"{_summary.get('fps_estimated', '—')}" if _summary.get('fps_estimated') is not None else "—",
+                            )
+                            _sc4.metric(
+                                "利き腕",
+                                str(_summary.get('dominant_hand', '—')).capitalize(),
+                            )
+
+                            st.markdown("**手首高さ（投げ腕）**")
+                            _wc1, _wc2, _wc3 = st.columns(3)
+                            _wc1.metric("最小", f"{_summary.get('wrist_height_min', '—')}")
+                            _wc2.metric("最大", f"{_summary.get('wrist_height_max', '—')}")
+                            _wc3.metric("可動域", f"{_summary.get('wrist_height_range', '—')}")
+
+                            _wp_frame = _summary.get('wrist_height_peak_frame')
+                            _wp_time  = _summary.get('wrist_height_peak_time_sec')
+                            if _wp_frame is not None:
+                                st.caption(
+                                    f"ピーク: フレーム {_wp_frame}"
+                                    + (f"  /  {_wp_time} 秒" if _wp_time is not None else "")
+                                )
+
+                            st.markdown("**重心移動（X 軸, 0=左端 / 1=右端）**")
+                            _gc1, _gc2 = st.columns(2)
+                            with _gc1:
+                                st.caption("肩中心")
+                                _sc_s = _summary.get('shoulder_center_x_start')
+                                _sc_e = _summary.get('shoulder_center_x_end')
+                                st.write(
+                                    f"開始: `{_sc_s}`  →  終了: `{_sc_e}`"
+                                    + (f"  （移動: `{round(_sc_e - _sc_s, 4)}`）"
+                                       if _sc_s is not None and _sc_e is not None else "")
+                                )
+                            with _gc2:
+                                st.caption("腰中心")
+                                _hc_s = _summary.get('hip_center_x_start')
+                                _hc_e = _summary.get('hip_center_x_end')
+                                st.write(
+                                    f"開始: `{_hc_s}`  →  終了: `{_hc_e}`"
+                                    + (f"  （移動: `{round(_hc_e - _hc_s, 4)}`）"
+                                       if _hc_s is not None and _hc_e is not None else "")
+                                )
 
                     # ── 生成ボタン（再生成） ────────────────────────────────
                     st.divider()

@@ -974,42 +974,69 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "\n使用例:\n"
-            "  # 基本の骨格表示のみ（既存機能、後方互換）\n"
-            "  python run.py --video input.mp4 --output output.mp4\n\n"
-            "  # ベクトルとヒートマップを追加\n"
-            "  python run.py --video input.mp4 --output output.mp4 --vectors --heatmap\n\n"
-            "  # すべての可視化機能を有効化 + Blender連携\n"
-            "  python run.py --video input.mp4 --output output.mp4 --vectors --heatmap --hud --glow-trail \\\n+                --height-m 1.80 --export-landmarks landmarks.json --blender-overlay\n\n"
-            "  # 🎬 4つのバリエーションを同時出力（推奨！）\n"
+            "  # 標準形式（推奨）\n"
+            "  python run.py --input input/sample.mp4 --output-dir output --all-variants --height-m 1.80\n\n"
+            "  # 入力ディレクトリを自動選択して4バリアント同時出力\n"
             "  python run.py --all-variants --height-m 1.80\n\n"
+            "  # 可視化フラグを個別指定\n"
+            "  python run.py --input input/sample.mp4 --output-dir output --vectors --heatmap --hud\n\n"
+            "  # すべての可視化機能を有効化 + Blender連携\n"
+            "  python run.py --input input/sample.mp4 --output-dir output --vectors --heatmap --hud\n"
+            "              --glow-trail --height-m 1.80 --export-landmarks landmarks.json --blender-overlay\n\n"
+            "  # 後方互換: --video / --output も引き続き使用可能\n"
+            "  python run.py --video input/sample.mp4 --output output/analysis.mp4 --all-variants\n\n"
             "  # 設定ファイルを使用\n"
-            "  python run.py --video input.mp4 --output output.mp4 --config configs/visuals.yaml\n"
+            "  python run.py --input input/sample.mp4 --output-dir output --config configs/visuals.yaml\n"
         )
     )
-    parser.add_argument("--video", help="入力動画ファイルのパス（デフォルト: input/内の最初の.mp4ファイル）")
-    parser.add_argument("--output", help="出力動画ファイルのパス（デフォルト: output/analysis_<input_name>.mp4）")
-    parser.add_argument("--config", help="設定ファイルのパス（YAML）")
-    parser.add_argument("--height-m", type=float, help="被写体の身長（メートル）")
-    parser.add_argument("--vectors", action="store_true", help="速度・加速度ベクトルを表示")
-    parser.add_argument("--heatmap", action="store_true", help="速度ヒートマップを表示")
-    parser.add_argument("--hud", action="store_true", help="ゲーム風HUDを表示")
-    parser.add_argument("--stickman", action="store_true", help="スティックマン表示（黒背景+ライン骨格）")
-    parser.add_argument("--analysis", action="store_true", help="統合コーチング解析（フェーズ・関節角度・軌道予測・運動連鎖）")
-    parser.add_argument("--wrist-trail", action="store_true", help="右手首軌跡を表示")
-    parser.add_argument("--glow-trail", action="store_true", help="光軌跡エフェクトを表示")
-    parser.add_argument("--all-variants", action="store_true", help="骨格・ヒートマップ・HUD・スティックマンの4種を同時出力")
-    parser.add_argument("--export-landmarks", help="ランドマークをJSONで出力（ファイル名を指定）")
-    parser.add_argument("--blender-overlay", action="store_true", help="Blender実行コマンドを表示（要 --export-landmarks）")
+    # ── 入出力（標準形式） ────────────────────────────────────────────────────
+    parser.add_argument(
+        "--input",
+        metavar="INPUT_MP4",
+        help="入力動画ファイルのパス（例: input/sample.mp4）。省略時は input/ 内の最初の .mp4 を自動選択。",
+    )
+    parser.add_argument(
+        "--output-dir",
+        metavar="OUTPUT_DIR",
+        help="出力先ディレクトリ（例: output）。指定すると解析結果をすべてこのフォルダに保存する。",
+    )
+    # ── 後方互換エイリアス ────────────────────────────────────────────────────
+    parser.add_argument(
+        "--video",
+        metavar="VIDEO",
+        help="（後方互換）入力動画ファイルのパス。--input が指定されている場合は --input が優先される。",
+    )
+    parser.add_argument(
+        "--output",
+        metavar="OUTPUT_MP4",
+        help="（後方互換）出力動画ファイルのパス。--output-dir が指定されている場合は --output-dir が優先される。",
+    )
+    # ── 共通オプション ────────────────────────────────────────────────────────
+    parser.add_argument("--config", metavar="CONFIG_YAML", help="設定ファイルのパス（YAML）")
+    parser.add_argument("--height-m", type=float, metavar="HEIGHT", help="被写体の身長（メートル）。速度の物理単位換算に使用。")
+    # ── 可視化フラグ ──────────────────────────────────────────────────────────
+    parser.add_argument("--vectors",      action="store_true", help="速度・加速度ベクトルを表示")
+    parser.add_argument("--heatmap",      action="store_true", help="速度ヒートマップを表示")
+    parser.add_argument("--hud",          action="store_true", help="ゲーム風HUDを表示")
+    parser.add_argument("--stickman",     action="store_true", help="スティックマン表示（黒背景+ライン骨格）")
+    parser.add_argument("--analysis",     action="store_true", help="統合コーチング解析（フェーズ・関節角度・軌道予測・運動連鎖）")
+    parser.add_argument("--wrist-trail",  action="store_true", help="右手首軌跡を表示")
+    parser.add_argument("--glow-trail",   action="store_true", help="光軌跡エフェクトを表示")
+    parser.add_argument("--all-variants", action="store_true", help="骨格・ヒートマップ・HUD・スティックマンの4種を同時出力（推奨）")
+    # ── Blender / Landmarks ───────────────────────────────────────────────────
+    parser.add_argument("--export-landmarks", metavar="LANDMARKS_JSON", help="ランドマークをJSONで出力（ファイルパスを指定）")
+    parser.add_argument("--blender-overlay",  action="store_true",      help="Blender実行コマンドを表示（要 --export-landmarks）")
+    # ── その他 ───────────────────────────────────────────────────────────────
     parser.add_argument("--verbose", action="store_true", help="詳細ログを出力")
-    # ジョブ管理用: admin_app.py から呼び出す際に使用
-    parser.add_argument("--input", help="入力動画ファイルのパス（--video の別名。指定時は --video より優先）")
-    parser.add_argument("--output-dir", help="出力ディレクトリのパス（指定時、output/ 以下ではなくこのディレクトリへ結果を保存）")
     args = parser.parse_args()
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    # --input は --video の別名（指定時は上書き）
+    # --input が指定されていれば --video より優先
     if args.input:
         args.video = args.input
+    elif args.video:
+        # --video のみ指定 → args.input にも反映（以降の処理で統一的に args.video を使う）
+        pass
     if not args.video:
         input_dir = Path("input")
         if input_dir.exists():

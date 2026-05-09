@@ -159,18 +159,32 @@ def collect_output_files(job_id: str) -> List[str]:
 # ── 顧客情報 (customer_info.json) ─────────────────────────────────────────────
 
 _CUSTOMER_INFO_DEFAULTS: dict = {
-    "customer_name":   "",
-    "instagram_id":    "",
-    "event":           "javelin",
-    "dominant_hand":   "unknown",
-    "height_m":        None,
-    "camera_angle":    "unknown",
-    "request_note":    "",
-    "coach_comment":   "",
-    "delivery_status": "not_started",
-    "paid_status":     "unknown",
-    "created_at":      "",
-    "updated_at":      "",
+    # ── 基本情報
+    "customer_name":              "",
+    "instagram_id":               "",
+    "event":                      "javelin",
+    # ── 身体情報
+    "dominant_arm":               "unknown",    # right / left / unknown  (正式フィールド)
+    "height_m":                   None,
+    # ── 撮影情報
+    "filming_angle":              "unknown",    # side / back / front / diagonal / unknown  (正式フィールド)
+    # ── 許諾・プラン
+    "permission_for_social_post": "unknown",    # yes / no / unknown
+    "plan":                       "free_preview",  # free_preview / data_sheet / full_report
+    "payment_status":             "unpaid",     # unpaid / paid / free
+    # ── メモ
+    "notes":                      "",
+    "request_note":               "",           # 後方互換
+    "coach_comment":              "",
+    # ── 管理
+    "delivery_status":            "not_started",
+    # ── 後方互換フィールド（旧名称）
+    "dominant_hand":              "unknown",
+    "camera_angle":               "unknown",
+    "paid_status":                "unknown",
+    # ── タイムスタンプ
+    "created_at":                 "",
+    "updated_at":                 "",
 }
 
 
@@ -184,13 +198,31 @@ def get_customer_info(job_id: str) -> dict:
 
     ファイルが存在しない場合はデフォルト値を返す。
     フィールドが追加された場合はデフォルト値でマージして返す（前方互換）。
+    旧フィールド名（dominant_hand / camera_angle）は新フィールド名へ自動移行する。
+    JSONが壊れている場合は警告ログを出しデフォルト値を返す（管理画面を落とさない）。
     """
+    import logging as _logging
     path = _customer_info_path(job_id)
     if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            data: dict = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+        except (json.JSONDecodeError, OSError) as _e:
+            _logging.warning(
+                "[job_manager] customer_info.json の読み込みに失敗しました (%s): %s", job_id, _e
+            )
+            now = datetime.now().isoformat(timespec="seconds")
+            return {**_CUSTOMER_INFO_DEFAULTS, "created_at": now, "updated_at": now}
         # 新フィールドが追加された場合のマイグレーション（既存値を優先）
-        return {**_CUSTOMER_INFO_DEFAULTS, **data}
+        merged = {**_CUSTOMER_INFO_DEFAULTS, **data}
+        # 旧フィールド → 新フィールドの自動移行（新フィールドが未設定の場合のみ）
+        if (not merged.get("dominant_arm") or merged["dominant_arm"] == "unknown") \
+                and data.get("dominant_hand") and data["dominant_hand"] != "unknown":
+            merged["dominant_arm"] = data["dominant_hand"]
+        if (not merged.get("filming_angle") or merged["filming_angle"] == "unknown") \
+                and data.get("camera_angle") and data["camera_angle"] != "unknown":
+            merged["filming_angle"] = data["camera_angle"]
+        return merged
     # ファイルがない場合はデフォルト（created_at は現在時刻）
     now = datetime.now().isoformat(timespec="seconds")
     return {**_CUSTOMER_INFO_DEFAULTS, "created_at": now, "updated_at": now}
@@ -213,6 +245,7 @@ def update_customer_info(job_id: str, **kwargs) -> dict:
         info["created_at"] = datetime.now().isoformat(timespec="seconds")
     info["updated_at"] = datetime.now().isoformat(timespec="seconds")
     path = _customer_info_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
     return info
