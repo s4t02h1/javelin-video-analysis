@@ -54,6 +54,14 @@ except ImportError:
 
 app = FastAPI(title="JVA Minimal SaaS")
 
+# ── intake API ルーター ────────────────────────────────────────────────────────
+try:
+    from server.intake_api import intake_router
+    app.include_router(intake_router, prefix="/v1")
+    logger.info("Intake API ルーターを読み込みました。")
+except ImportError as _ie:
+    logger.warning("Intake API ルーターの読み込みに失敗しました: %s", _ie)
+
 
 # ── S3 ユーティリティ ────────────────────────────────────────────────────────
 

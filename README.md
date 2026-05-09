@@ -1123,3 +1123,76 @@ cp .env.example .env   # JVA_BUCKET などを編集
 | `docs/s3_delivery_setup.md` | S3 セットアップガイド（新規） |
 | `tests/test_phase5.py` | Phase 5 ユニットテスト（新規） |
 
+---
+
+## Phase 6: 公式LINE・Googleフォーム・FastAPI受付連携
+
+解析依頼の受付を効率化するための受付管理（intake）システムを追加しました。
+
+### 主な機能
+
+- **intake データモデル**: `intakes/{intake_id}/intake.json` で受付情報を管理
+- **FastAPI 受付 API**: `POST /v1/intakes` 等のエンドポイントで受付情報を作成・管理
+- **管理画面 intake 一覧タブ**: フィルタ・詳細編集・ジョブ化操作
+- **Googleフォーム連携**: Apps Script から POST する方法を `docs/google_form_integration.md` に記載
+- **公式 LINE 運用ガイド**: `docs/line_official_account_guide.md` に運用フローを記載
+
+### 受付 API エンドポイント
+
+```
+POST   /v1/intakes                         受付情報を作成
+GET    /v1/intakes                         受付一覧（?status=&source= フィルタ対応）
+GET    /v1/intakes/{id}                    受付詳細
+PATCH  /v1/intakes/{id}                    受付情報更新
+POST   /v1/intakes/{id}/convert-to-job    ジョブ化（二重変換防止）
+POST   /v1/intakes/{id}/archive           アーカイブ
+POST   /v1/intakes/{id}/reject            対応不可
+GET    /v1/intakes/health                  ヘルスチェック（認証不要）
+```
+
+**認証:** `X-JVA-API-Key` ヘッダーまたは `Authorization: Bearer {key}`
+
+### 環境変数
+
+```bash
+JVA_API_KEY=your-secret-key        # APIキー（未設定時は開発モード・警告あり）
+JVA_ENABLE_INTAKE_API=true         # API の有効化フラグ
+LINE_CHANNEL_SECRET=               # LINE Webhook 用（将来対応）
+LINE_CHANNEL_ACCESS_TOKEN=         # LINE Webhook 用（将来対応）
+LINE_WEBHOOK_ENABLED=false         # LINE Webhook 有効化フラグ
+```
+
+### ステータス遷移
+
+```
+received → needs_review → ready_for_job → converted
+                       ↘ rejected
+any → archived
+```
+
+### 同意事項
+
+以下の 6 項目の同意状態を管理します。デフォルトはすべて `false`（安全側）。
+
+| フィールド | 説明 |
+|---|---|
+| `consent_reference_analysis` | 解析は参考資料であることへの同意 |
+| `consent_not_medical` | 医療診断・怪我の診断でないことへの同意 |
+| `consent_not_coaching_replacement` | 専門的競技指導の代替でないことへの同意 |
+| `consent_accuracy_depends_on_video` | 動画品質により精度が変わることへの同意 |
+| `consent_delivery_may_take_time` | 納品まで時間がかかる場合への同意 |
+| `consent_sns_requires_permission` | SNS掲載は別途許可制であることへの同意 |
+
+### Phase 6 で追加・変更されたファイル
+
+| ファイル | 内容 |
+|---|---|
+| `src/intake_manager.py` | intake データモデル・管理関数（新規） |
+| `server/intake_api.py` | FastAPI intake ルーター（新規） |
+| `server/app.py` | intake_router のインクルード（変更） |
+| `admin_app.py` | 受付一覧タブの追加（変更） |
+| `docs/google_form_integration.md` | Googleフォーム連携ガイド（新規） |
+| `docs/line_official_account_guide.md` | 公式 LINE 運用ガイド（新規） |
+| `.env.example` | Phase 6 環境変数の追加（変更） |
+| `tests/test_phase6.py` | Phase 6 ユニットテスト・44件（新規） |
+

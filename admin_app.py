@@ -49,6 +49,35 @@ from job_manager import (
     get_job_s3_status,
 )
 
+# ── Phase 6: intake 管理 ──────────────────────────────────────────────────────
+try:
+    from src.intake_manager import (
+        INTAKE_STATUSES,
+        INTAKE_STATUS_LABELS,
+        INTAKE_SOURCES,
+        CONSENT_LABELS,
+        check_all_consents,
+        missing_consents,
+        create_intake,
+        load_intake,
+        update_intake,
+        list_intakes,
+        set_intake_status,
+        archive_intake,
+        reject_intake,
+        convert_intake_to_job,
+        generate_intake_id,
+    )
+    import job_manager as _jm_module
+    _INTAKE_AVAILABLE = True
+except ImportError as _intake_ie:
+    _INTAKE_AVAILABLE = False
+    INTAKE_STATUSES = []
+    INTAKE_STATUS_LABELS = {}
+    INTAKE_SOURCES = []
+    CONSENT_LABELS = {}
+
+
 # ── Phase 5: S3 / 納品ページ (try import — S3 未設定でもアプリは動く) ─────────
 try:
     from src.storage.s3_storage import (
@@ -659,8 +688,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist, tab_import = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧"]
 )
 
 
@@ -3185,4 +3214,406 @@ with tab_import:
 
 詳細は `docs/video_submission_guide.md` と `docs/google_form_template.md` を参照してください。
 """)
+
+
+# ─── Tab 6: 受付一覧 (intake) ──────────────────────────────────────────────────
+
+with tab_intakes:
+    st.header("📨 受付一覧")
+
+    if not _INTAKE_AVAILABLE:
+        st.error("`src/intake_manager.py` が読み込めません。インストールを確認してください。")
+        st.stop()
+
+    # ── フィルタ ─────────────────────────────────────────────────────────────
+    with st.expander("🔍 フィルタ", expanded=False):
+        _f_col1, _f_col2, _f_col3 = st.columns(3)
+        with _f_col1:
+            _f_status = st.selectbox(
+                "ステータス",
+                options=["すべて"] + list(INTAKE_STATUS_LABELS.values()),
+                key="intake_filter_status",
+            )
+        with _f_col2:
+            _f_source_labels = {"すべて": None, "手動": "manual", "Googleフォーム": "google_form",
+                                 "LINE": "line", "API": "api", "CSVインポート": "csv_import"}
+            _f_source_label = st.selectbox(
+                "受付ソース",
+                options=list(_f_source_labels.keys()),
+                key="intake_filter_source",
+            )
+        with _f_col3:
+            _f_plan = st.selectbox(
+                "希望プラン",
+                options=["すべて", "free_preview", "data_sheet", "full_report", "comparison", "undecided"],
+                key="intake_filter_plan",
+            )
+        _f_col4, _f_col5 = st.columns(2)
+        with _f_col4:
+            _f_consent_ng = st.checkbox("同意未完了のみ", key="intake_filter_consent")
+        with _f_col5:
+            _f_not_converted = st.checkbox("未ジョブ化のみ", key="intake_filter_converted")
+
+    # ステータスラベル → 内部値
+    _status_label_to_key = {v: k for k, v in INTAKE_STATUS_LABELS.items()}
+    _filter_status_key = _status_label_to_key.get(_f_status)
+    _filter_source_key = _f_source_labels.get(_f_source_label)
+
+    _all_intakes = list_intakes(status=_filter_status_key, source=_filter_source_key)
+
+    # 追加フィルタ
+    if _f_plan != "すべて":
+        _all_intakes = [i for i in _all_intakes if i.get("desired_plan") == _f_plan]
+    if _f_consent_ng:
+        _all_intakes = [i for i in _all_intakes if not check_all_consents(i)]
+    if _f_not_converted:
+        _all_intakes = [i for i in _all_intakes if not i.get("converted_job_id")]
+
+    st.caption(f"**{len(_all_intakes)} 件**の受付が見つかりました。")
+
+    # ── 新規受付登録ボタン ──────────────────────────────────────────────────
+    if st.button("➕ 新規受付を手動登録", key="intake_manual_create"):
+        _new_intake = create_intake(source="manual")
+        st.success(f"✅ 受付を作成しました: `{_new_intake['intake_id']}`")
+        st.rerun()
+
+    st.divider()
+
+    if not _all_intakes:
+        st.info("受付データがありません。Googleフォームや公式LINE、または「新規受付を手動登録」から追加してください。")
+    else:
+        # ── 一覧テーブル ──────────────────────────────────────────────────────
+        _intake_rows = []
+        for _intake in _all_intakes:
+            _all_ok = check_all_consents(_intake)
+            _intake_rows.append({
+                "intake_id":  _intake["intake_id"],
+                "受付日時":    _intake.get("created_at", "")[:16] if _intake.get("created_at") else "—",
+                "ソース":      _intake.get("source", "—"),
+                "名前/ニックネーム": _intake.get("name_or_nickname", "—") or "—",
+                "連絡先":      "****" if _intake.get("contact") else "—",
+                "希望プラン":  _intake.get("desired_plan", "—"),
+                "ステータス":  INTAKE_STATUS_LABELS.get(_intake.get("status", ""), _intake.get("status", "—")),
+                "動画本数":    _intake.get("video_count", "—"),
+                "同意完了":    "✅" if _all_ok else "❌",
+                "ジョブ化済み": "✅" if _intake.get("converted_job_id") else "—",
+            })
+        st.dataframe(
+            pd.DataFrame(_intake_rows).drop(columns=["intake_id"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.divider()
+        st.subheader("受付詳細")
+
+        # ── 受付詳細エリア ────────────────────────────────────────────────────
+        for _intake in _all_intakes:
+            _iid = _intake["intake_id"]
+            _istat = INTAKE_STATUS_LABELS.get(_intake.get("status", ""), _intake.get("status", "—"))
+            _icreated = _intake.get("created_at", "")[:16] if _intake.get("created_at") else "—"
+            _iname = _intake.get("name_or_nickname", "—") or "—"
+            _isrc = _intake.get("source", "—")
+            _all_ok = check_all_consents(_intake)
+            _miss = missing_consents(_intake)
+
+            with st.expander(
+                f"{_icreated}  |  {_iname}  [{_iid}]  ({_istat})",
+                expanded=False,
+            ):
+                _itab1, _itab2, _itab3, _itab4, _itab5 = st.tabs(
+                    ["基本情報", "競技・動画", "同意事項", "管理操作", "生データ"]
+                )
+
+                # ── 基本情報タブ ──────────────────────────────────────────────
+                with _itab1:
+                    _ic1, _ic2 = st.columns(2)
+                    with _ic1:
+                        _new_name = st.text_input(
+                            "名前またはニックネーム",
+                            value=_intake.get("name_or_nickname", ""),
+                            key=f"intake_name_{_iid}",
+                        )
+                        _new_contact = st.text_input(
+                            "連絡先",
+                            value=_intake.get("contact", ""),
+                            key=f"intake_contact_{_iid}",
+                        )
+                        _new_instagram = st.text_input(
+                            "Instagramアカウント",
+                            value=_intake.get("instagram_account", ""),
+                            key=f"intake_instagram_{_iid}",
+                        )
+                    with _ic2:
+                        _new_source = st.selectbox(
+                            "受付ソース",
+                            options=INTAKE_SOURCES,
+                            index=INTAKE_SOURCES.index(_intake.get("source", "unknown")) if _intake.get("source") in INTAKE_SOURCES else 0,
+                            key=f"intake_source_{_iid}",
+                        )
+                        _new_desired_plan = st.selectbox(
+                            "希望プラン",
+                            options=["free_preview", "data_sheet", "full_report", "comparison", "undecided"],
+                            index=["free_preview", "data_sheet", "full_report", "comparison", "undecided"].index(
+                                _intake.get("desired_plan", "free_preview")
+                            ) if _intake.get("desired_plan") in ["free_preview", "data_sheet", "full_report", "comparison", "undecided"] else 0,
+                            key=f"intake_plan_{_iid}",
+                        )
+                        _sns_opts = ["unknown", "allowed", "anonymous", "denied"]
+                        _sns_labels = {"unknown": "⚠️ 未確認", "allowed": "✅ 許可", "anonymous": "🙈 匿名のみ許可", "denied": "❌ 不可"}
+                        _new_sns = st.selectbox(
+                            "SNS掲載許可",
+                            options=_sns_opts,
+                            format_func=lambda x: _sns_labels[x],
+                            index=_sns_opts.index(_intake.get("sns_permission_status", "unknown")) if _intake.get("sns_permission_status") in _sns_opts else 0,
+                            key=f"intake_sns_{_iid}",
+                        )
+                    _new_main_req = st.text_area(
+                        "主な相談内容",
+                        value=_intake.get("main_request", ""),
+                        height=100,
+                        key=f"intake_main_req_{_iid}",
+                    )
+                    _new_admin_note = st.text_area(
+                        "管理者メモ",
+                        value=_intake.get("admin_note", ""),
+                        height=80,
+                        key=f"intake_admin_note_{_iid}",
+                    )
+                    if st.button("💾 基本情報を保存", key=f"intake_save_basic_{_iid}"):
+                        update_intake(
+                            _iid,
+                            name_or_nickname=_new_name,
+                            contact=_new_contact,
+                            instagram_account=_new_instagram,
+                            source=_new_source,
+                            desired_plan=_new_desired_plan,
+                            sns_permission_status=_new_sns,
+                            main_request=_new_main_req,
+                            admin_note=_new_admin_note,
+                        )
+                        st.success("保存しました。")
+                        st.rerun()
+
+                # ── 競技・動画タブ ────────────────────────────────────────────
+                with _itab2:
+                    _icc1, _icc2 = st.columns(2)
+                    with _icc1:
+                        _new_age_group = st.text_input(
+                            "年齢区分",
+                            value=_intake.get("age_group", ""),
+                            key=f"intake_age_{_iid}",
+                            placeholder="中学生 / 高校生 / 大学生 / 社会人 / マスターズ",
+                        )
+                        _new_dominant_arm = st.selectbox(
+                            "利き腕",
+                            options=["unknown", "right", "left"],
+                            format_func=lambda x: {"unknown": "不明", "right": "右腕", "left": "左腕"}[x],
+                            index=["unknown", "right", "left"].index(_intake.get("dominant_arm", "unknown")) if _intake.get("dominant_arm") in ["unknown", "right", "left"] else 0,
+                            key=f"intake_arm_{_iid}",
+                        )
+                        _new_height_cm = st.number_input(
+                            "身長 (cm)",
+                            value=float(_intake.get("height_cm") or 0),
+                            min_value=0.0,
+                            max_value=250.0,
+                            step=0.5,
+                            key=f"intake_height_{_iid}",
+                        )
+                        _new_pb = st.text_input(
+                            "自己ベスト",
+                            value=_intake.get("personal_best", ""),
+                            key=f"intake_pb_{_iid}",
+                        )
+                    with _icc2:
+                        _new_video_count = st.number_input(
+                            "動画本数",
+                            value=int(_intake.get("video_count") or 1),
+                            min_value=1,
+                            max_value=20,
+                            step=1,
+                            key=f"intake_vcount_{_iid}",
+                        )
+                        _angle_opts = ["unknown", "side", "diagonal_back", "front", "other"]
+                        _angle_labels = {"unknown": "不明", "side": "側面", "diagonal_back": "斜め後方", "front": "正面", "other": "その他"}
+                        _new_angle = st.selectbox(
+                            "撮影角度",
+                            options=_angle_opts,
+                            format_func=lambda x: _angle_labels[x],
+                            index=_angle_opts.index(_intake.get("shooting_angle", "unknown")) if _intake.get("shooting_angle") in _angle_opts else 0,
+                            key=f"intake_angle_{_iid}",
+                        )
+                        _new_is_slow = st.checkbox(
+                            "スローモーション",
+                            value=_intake.get("is_slow_motion", False),
+                            key=f"intake_slow_{_iid}",
+                        )
+                    _new_video_type = st.text_input(
+                        "動画種別",
+                        value=_intake.get("video_type", ""),
+                        key=f"intake_vtype_{_iid}",
+                        placeholder="全助走 / 投げのみ / 部分練習 / その他",
+                    )
+                    if st.button("💾 競技・動画情報を保存", key=f"intake_save_sport_{_iid}"):
+                        update_intake(
+                            _iid,
+                            age_group=_new_age_group,
+                            dominant_arm=_new_dominant_arm,
+                            height_cm=_new_height_cm if _new_height_cm > 0 else None,
+                            personal_best=_new_pb,
+                            video_count=_new_video_count,
+                            shooting_angle=_new_angle,
+                            is_slow_motion=_new_is_slow,
+                            video_type=_new_video_type,
+                        )
+                        st.success("保存しました。")
+                        st.rerun()
+
+                # ── 同意事項タブ ──────────────────────────────────────────────
+                with _itab3:
+                    if _all_ok:
+                        st.success("✅ すべての同意事項が確認済みです。")
+                    else:
+                        st.warning(f"⚠️ {len(_miss)} 件の同意事項が未確認です。")
+                    _consent_vals: dict = {}
+                    for _ckey, _clabel in CONSENT_LABELS.items():
+                        _consent_vals[_ckey] = st.checkbox(
+                            _clabel,
+                            value=_intake.get(_ckey, False),
+                            key=f"intake_{_ckey}_{_iid}",
+                        )
+                    if st.button("💾 同意事項を保存", key=f"intake_save_consent_{_iid}"):
+                        update_intake(_iid, **_consent_vals)
+                        st.success("保存しました。")
+                        st.rerun()
+
+                # ── 管理操作タブ ──────────────────────────────────────────────
+                with _itab4:
+                    # ステータス変更
+                    _cur_status = _intake.get("status", "received")
+                    _new_status_label = st.selectbox(
+                        "ステータス",
+                        options=[INTAKE_STATUS_LABELS.get(s, s) for s in INTAKE_STATUSES],
+                        index=INTAKE_STATUSES.index(_cur_status) if _cur_status in INTAKE_STATUSES else 0,
+                        key=f"intake_status_sel_{_iid}",
+                    )
+                    _new_status_key = {v: k for k, v in INTAKE_STATUS_LABELS.items()}.get(_new_status_label, _cur_status)
+                    if st.button("💾 ステータスを更新", key=f"intake_status_save_{_iid}"):
+                        set_intake_status(_iid, _new_status_key)
+                        st.success("ステータスを更新しました。")
+                        st.rerun()
+
+                    st.divider()
+
+                    # 納品URL送信文
+                    _cur_job_for_delivery_url = ""
+                    if _intake.get("converted_job_id"):
+                        try:
+                            _cj = load_job(_intake["converted_job_id"])
+                            _cur_job_for_delivery_url = get_job_s3_status(_cj).get("delivery_page_url") or ""
+                        except Exception:
+                            pass
+                    if _cur_job_for_delivery_url:
+                        st.markdown("**📱 納品URL送信文:**")
+                        _delivery_tmpl = (
+                            f"このたびは動画解析サービスをご利用いただきありがとうございます。\n\n"
+                            f"解析結果はこちらからご確認ください。\n\n"
+                            f"{_cur_job_for_delivery_url}\n\n"
+                            "まずは「最初に読んでください」を開いてから、解析動画とPDFをご確認ください。\n\n"
+                            "URLには有効期限があります。\n"
+                            "期限切れの場合は再発行しますのでご連絡ください。\n\n"
+                            "本解析は、動画から取得した姿勢推定データをもとにした参考資料です。\n"
+                            "競技指導、医療判断、怪我の診断を代替するものではありません。"
+                        )
+                        st.text_area(
+                            "納品URL送信文",
+                            value=_delivery_tmpl,
+                            height=200,
+                            key=f"intake_delivery_msg_{_iid}",
+                            label_visibility="collapsed",
+                        )
+
+                    # 受付完了メッセージ
+                    st.markdown("**📩 受付完了メッセージ:**")
+                    _receipt_tmpl = (
+                        "動画解析サービスへのお申し込みありがとうございます。\n\n"
+                        "受付内容を確認後、順番に解析を進めます。\n"
+                        "動画の画質・撮影角度・内容によっては、追加確認をお願いする場合があります。\n\n"
+                        "本解析は参考資料であり、医療診断や専門的な競技指導を代替するものではありません。\n\n"
+                        "納品まで少々お時間をいただく場合があります。\n"
+                        "あらかじめご了承ください。"
+                    )
+                    st.text_area(
+                        "受付完了メッセージ",
+                        value=_receipt_tmpl,
+                        height=160,
+                        key=f"intake_receipt_msg_{_iid}",
+                        label_visibility="collapsed",
+                    )
+
+                    st.divider()
+
+                    # ジョブ化ボタン
+                    if _intake.get("converted_job_id"):
+                        st.info(f"✅ ジョブ化済み: `{_intake['converted_job_id']}`")
+                        if st.button("⚠️ 再ジョブ化（強制）", key=f"intake_reconvert_{_iid}"):
+                            try:
+                                _conv_res = convert_intake_to_job(_iid, _jm_module, force=True)
+                                st.success(f"✅ 新規ジョブを作成しました: `{_conv_res['job']['job_id']}`")
+                                st.rerun()
+                            except Exception as _ce:
+                                st.error(f"❌ エラー: {_ce}")
+                    else:
+                        _consent_warn = not _all_ok
+                        if _consent_warn:
+                            st.warning(
+                                f"⚠️ 同意未確認項目が {len(_miss)} 件あります: "
+                                + "、".join(CONSENT_LABELS.get(k, k) for k in _miss[:3])
+                                + ("..." if len(_miss) > 3 else "")
+                            )
+                        if st.button(
+                            "🚀 ジョブを作成する" + ("（同意未完了）" if _consent_warn else ""),
+                            key=f"intake_convert_{_iid}",
+                            type="secondary" if _consent_warn else "primary",
+                        ):
+                            try:
+                                _conv_res = convert_intake_to_job(_iid, _jm_module, force=False)
+                                st.success(f"✅ ジョブを作成しました: `{_conv_res['job']['job_id']}`")
+                                st.info("「📋 ジョブ履歴」タブでジョブを確認してください。")
+                                st.rerun()
+                            except ValueError as _ve:
+                                st.error(f"❌ {_ve}")
+                            except Exception as _ce:
+                                st.error(f"❌ エラー: {_ce}")
+
+                    st.divider()
+
+                    _op_col1, _op_col2 = st.columns(2)
+                    with _op_col1:
+                        if st.button("📦 アーカイブ", key=f"intake_archive_{_iid}"):
+                            archive_intake(_iid)
+                            st.success("アーカイブしました。")
+                            st.rerun()
+                    with _op_col2:
+                        if st.button("❌ 対応不可", key=f"intake_reject_{_iid}"):
+                            reject_intake(_iid)
+                            st.success("対応不可にしました。")
+                            st.rerun()
+
+                # ── 生データタブ ──────────────────────────────────────────────
+                with _itab5:
+                    _raw = _intake.get("raw_payload", {})
+                    if _raw:
+                        st.json(_raw)
+                    else:
+                        st.caption("raw_payload は空です。")
+                    st.divider()
+                    st.caption("intake.json 全体:")
+                    # 個人情報フィールドをマスク表示
+                    _masked = {
+                        k: ("****" if k in ("name_or_nickname", "contact", "line_user_id", "email", "instagram_account") and v else v)
+                        for k, v in _intake.items()
+                    }
+                    st.json(_masked)
+
 
