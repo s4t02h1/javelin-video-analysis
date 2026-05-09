@@ -1098,9 +1098,18 @@ with tab_history:
 
                 _ufr_items = [
                     (
+                        None,
+                        "00_最初に読んでください.pdf",
+                        "📋 はじめにお読みください",
+                        "ZIPの先頭に入る案内PDF（ファイル構成・見る順番・説明）",
+                        "gen_intro_pdf",
+                        "src.intro_pdf_generator",
+                        "generate_intro_pdf_for_job",
+                    ),
+                    (
                         "athlete_pdf_path",
                         "athlete_data_sheet.pdf",
-                        "🏃 アスリートデータシート",
+                        "🏃 アスリートデータシート（選手向けサマリー）",
                         "主要指標をまとめた選手向けサマリーPDF",
                         "gen_athlete_pdf",
                         "src.athlete_data_sheet_generator",
@@ -1109,7 +1118,7 @@ with tab_history:
                     (
                         "key_frame_pdf_path",
                         "key_frame_sheet.pdf",
-                        "🖼 キーフレームシート",
+                        "🖼 代表フレームシート",
                         "フェーズ別代表フレーム一覧PDF",
                         "gen_key_frame_pdf",
                         "src.key_frame_sheet_generator",
@@ -1118,7 +1127,7 @@ with tab_history:
                     (
                         "graph_pack_pdf_path",
                         "graph_pack.pdf",
-                        "📈 グラフパック",
+                        "📈 グラフ解説PDF",
                         "解析グラフを解説付きでまとめたPDF",
                         "gen_graph_pack_pdf",
                         "src.graph_pack_generator",
@@ -1127,8 +1136,8 @@ with tab_history:
                     (
                         "coach_review_pdf_path",
                         "coach_review_sheet.pdf",
-                        "📝 コーチレビューシート",
-                        "フェーズ別チェックリスト＆記入欄PDF",
+                        "📝 コーチ向けレビューシート",
+                        "フェーズ別チェックリスト＆記入欄PDF（指導者向け）",
                         "gen_coach_review_pdf",
                         "src.coach_review_sheet_generator",
                         "generate_coach_review_sheet_for_job",
@@ -1139,11 +1148,13 @@ with tab_history:
                      _mod_name, _fn_name) in _ufr_items:
                     st.markdown(f"**{_label}**")
                     st.caption(_caption)
-                    _ufr_p = _cls.get(_cls_key)
+                    # cls_key が None の場合は直接 report/ 以下を参照
+                    _ufr_p = (_job_dir / "report" / _fname) if _cls_key is None else _cls.get(_cls_key)
                     _k1, _k2 = st.columns([3, 2])
                     with _k1:
-                        if _ufr_p and _ufr_p.exists():
+                        if _ufr_p and Path(_ufr_p).exists():
                             try:
+                                _ufr_p = Path(_ufr_p)
                                 _ufr_mt = datetime.fromtimestamp(
                                     _ufr_p.stat().st_mtime
                                 ).strftime("%Y-%m-%d %H:%M:%S")
@@ -1490,6 +1501,11 @@ with tab_history:
                         "解析完了後に上記ボタンを押すと3種類のZIPが一括生成されます。"
                         "生成済みのZIPは各カードのダウンロードボタンから取得できます。"
                     )
+                    st.caption(
+                        "**ZIPフォルダ構成:** `00_最初に読んでください.pdf` → "
+                        "`01_解析動画/` → `02_選手向けサマリー/` → `03_コーチ向け/` → "
+                        "`04_代表フレーム画像/` → `05_研究・開発用データ/` → `99_注意事項/`"
+                    )
 
                 st.markdown("---")
 
@@ -1502,9 +1518,11 @@ with tab_history:
                         "subtitle":  "Free Preview Package",
                         "purpose":   "SNSでシェアする前の確認・無料体験として納品",
                         "contents":  [
-                            "📹 解析動画（プレビュー用）",
-                            "🖼️ 代表フレーム画像（先頭3枚）",
-                            "📖 解析動画 説明書 (video_instruction.pdf)",
+                            "� 00_最初に読んでください.pdf",
+                            "📹 01_解析動画/（プレビュー動画）",
+                            "📖 解析動画の見方.pdf",
+                            "🖼️ 02_代表フレーム画像/（先頭3枚）",
+                            "⚠️ 99_注意事項/注意事項.txt",
                         ],
                         "badge_color": "#2E7D32",   # 緑
                         "badge_text":  "FREE",
@@ -1516,13 +1534,15 @@ with tab_history:
                         "subtitle":  "Paid Data Sheet Package",
                         "purpose":   "数値データ・グラフを活用したい競技者・コーチ向け",
                         "contents":  [
-                            "📖 解析動画 説明書 (video_instruction.pdf)",
-                            "🏃 アスリートデータシート (athlete_data_sheet.pdf)",
-                            "🖼️ キーフレームシート (key_frame_sheet.pdf)",
-                            "📈 グラフパック PDF (graph_pack.pdf)",
-                            "📹 全解析動画",
-                            "🖼️ 代表フレーム画像（全枚）",
-                            "📄 pose_landmarks.csv（生データ）",
+                            "📋 00_最初に読んでください.pdf",
+                            "📹 01_解析動画/（全動画）",
+                            "📖 解析動画の見方.pdf",
+                            "🏃 02_選手向けサマリー/選手向けサマリー.pdf",
+                            "🖼️ 02_選手向けサマリー/代表フレームシート.pdf",
+                            "📈 02_選手向けサマリー/グラフ解説.pdf",
+                            "🖼️ 03_代表フレーム画像/（全枚）",
+                            "📄 04_研究・開発用データ/pose_landmarks.csv",
+                            "⚠️ 99_注意事項/注意事項.txt",
                         ],
                         "badge_color": "#1565C0",   # 青
                         "badge_text":  "PAID",
@@ -1534,17 +1554,17 @@ with tab_history:
                         "subtitle":  "Paid Full Report Package",
                         "purpose":   "PDF・動画・データを完全セットで納品したい場合",
                         "contents":  [
-                            "📝 report.pdf（フル解析レポート）",
-                            "📖 解析動画 説明書 (video_instruction.pdf)",
-                            "🏃 アスリートデータシート (athlete_data_sheet.pdf)",
-                            "🖼️ キーフレームシート (key_frame_sheet.pdf)",
-                            "📈 グラフパック PDF (graph_pack.pdf)",
-                            "📝 コーチレビューシート (coach_review_sheet.pdf)",
-                            "📹 全解析動画",
-                            "🖼️ 代表フレーム画像（全枚）",
-                            "📄 pose_landmarks.csv（生データ）",
-                            "🗂️ 解析グラフ画像",
-                            "📊 analysis_summary.json（内部データ）",
+                            "📋 00_最初に読んでください.pdf",
+                            "📝 report.pdf（詳細解析レポート）",
+                            "📹 01_解析動画/（全動画）",
+                            "📖 解析動画の見方.pdf",
+                            "🏃 02_選手向けサマリー/選手向けサマリー.pdf",
+                            "🖼️ 02_選手向けサマリー/代表フレームシート.pdf",
+                            "📈 02_選手向けサマリー/グラフ解説.pdf",
+                            "📝 03_コーチ向け/コーチ向けレビューシート.pdf",
+                            "🖼️ 04_代表フレーム画像/（全枚）",
+                            "📄 05_研究・開発用データ/（CSV・JSON・グラフ画像）",
+                            "⚠️ 99_注意事項/注意事項.txt",
                         ],
                         "badge_color": "#E65100",   # オレンジ
                         "badge_text":  "PAID",

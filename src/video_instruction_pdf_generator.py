@@ -48,17 +48,6 @@ logger = logging.getLogger(__name__)
 def _fn(bold: bool = False) -> str:
     return _get_font(bold=bold)
 
-    if _JP_FONT:
-        return text
-    result: list[str] = []
-    for ch in text:
-        try:
-            ch.encode("latin-1")
-            result.append(ch)
-        except (UnicodeEncodeError, ValueError):
-            result.append("?")
-    return "".join(result)
-
 
 # ── 定数 ───────────────────────────────────────────────────────────────────────
 
