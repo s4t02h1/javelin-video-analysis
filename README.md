@@ -1065,3 +1065,61 @@ Googleフォームの回答CSVを管理画面「📥 CSVインポート」タブ
 | `admin_app.py` | O. フェーズ指定セクション、比較タブ UI 強化 |
 | `tests/test_phase4.py` | Phase 4 ユニットテスト（新規） |
 
+---
+
+## Phase 5: S3保存・納品URL生成・スマホ閲覧対応
+
+### 概要
+
+解析成果物を Amazon S3 にアップロードし、presigned URL を使ってお客様がスマホから直接閲覧できる
+**納品ページ HTML** を生成します。ZIP を送る代わりに URL 1本で完結する納品フローを実現します。
+
+### 主な機能
+
+- **S3 自動アップロード**: 解析動画・PDF・グラフ・ZIP など全成果物を一括アップロード
+- **成果物マニフェスト**: 何がアップロード済みかを `artifact_manifest.json` で管理
+- **スマホ対応納品ページ**: 1ファイル完結 HTML（外部 CSS 依存なし）を自動生成
+- **presigned URL**: バケットを非公開のまま、有効期限付き URL でセキュアに共有
+- **LINEで送れるURL**: 管理画面から URL をコピーしてそのまま LINE 送信
+- **S3 未設定でも動作**: 環境変数未設定時はローカル運用を継続（ダウングレードなし）
+
+### セキュリティ設計
+
+- バケットは **Block All Public Access** のまま使用
+- S3 キーに個人名・学校名を含めない（job_id のみ使用）
+- presigned URL をログに記録しない
+- AWSキーをコードに直書きしない（`.env` または IAM ロール）
+- `.env` は Git 管理しない
+
+### セットアップ
+
+```bash
+pip install boto3
+cp .env.example .env   # JVA_BUCKET などを編集
+```
+
+詳細: [docs/s3_delivery_setup.md](docs/s3_delivery_setup.md)
+
+### 管理画面での操作
+
+ジョブ詳細の「**☁️ P. S3納品 / 納品URL発行**」エクスパンダーから操作:
+
+1. 📋 マニフェスト生成 → 成果物一覧を確認
+2. ☁️ S3 アップロード → 全成果物をアップロード
+3. 🌐 納品ページ生成 → URL 発行
+4. URL をコピーして LINE 等で送付
+
+### Phase 5 で追加・変更されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `src/storage/__init__.py` | S3 ストレージパッケージ（新規） |
+| `src/storage/s3_storage.py` | S3 アップロード・presigned URL ユーティリティ（新規） |
+| `src/artifact_manifest.py` | 成果物マニフェスト生成・管理（新規） |
+| `src/delivery_page.py` | スマホ向け納品 HTML 生成（新規） |
+| `job_manager.py` | S3 納品フィールド管理関数を追加 |
+| `admin_app.py` | P. S3納品セクション追加、`build_delivery_message` に URL 差し込み |
+| `.env.example` | S3 設定項目追加 |
+| `docs/s3_delivery_setup.md` | S3 セットアップガイド（新規） |
+| `tests/test_phase5.py` | Phase 5 ユニットテスト（新規） |
+

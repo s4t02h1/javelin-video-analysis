@@ -632,3 +632,60 @@ def get_comparison_dir(comparison_id: str) -> Path:
     return COMPARISONS_DIR / comparison_id
 
 
+# ── Phase 5: S3納品 ヘルパー ──────────────────────────────────────────────────
+
+def update_job_s3_delivery(
+    job_id: str,
+    delivery_page_s3_key: str,
+    delivery_page_url: str,
+    delivery_url_expires_at: str,
+    uploaded_artifacts_count: int,
+    upload_status: str,
+) -> dict:
+    """ジョブの S3 納品関連フィールドを一括更新する。
+
+    Args:
+        job_id: ジョブID
+        delivery_page_s3_key: 納品ページ HTML の S3 キー
+        delivery_page_url: 納品ページ presigned URL
+        delivery_url_expires_at: URL 有効期限 (ISO 8601 文字列)
+        uploaded_artifacts_count: アップロード済み成果物数
+        upload_status: "none" / "partial" / "complete"
+
+    Returns:
+        更新後の job dict
+    """
+    return update_job(
+        job_id,
+        delivery_page_s3_key=delivery_page_s3_key,
+        delivery_page_url=delivery_page_url,
+        delivery_url_expires_at=delivery_url_expires_at,
+        last_uploaded_at=datetime.now().isoformat(timespec="seconds"),
+        uploaded_artifacts_count=uploaded_artifacts_count,
+        upload_status=upload_status,
+    )
+
+
+def get_job_s3_status(job: dict) -> dict:
+    """job dict から S3 納品ステータスを取り出す。
+
+    フィールドが存在しない古いジョブでも安全に動作する。
+
+    Returns:
+        {
+            "upload_status": str,            # "none" / "partial" / "complete"
+            "uploaded_artifacts_count": int,
+            "delivery_page_url": str | None,
+            "delivery_url_expires_at": str | None,
+            "last_uploaded_at": str | None,
+        }
+    """
+    return {
+        "upload_status":             job.get("upload_status", "none"),
+        "uploaded_artifacts_count":  job.get("uploaded_artifacts_count", 0),
+        "delivery_page_url":         job.get("delivery_page_url"),
+        "delivery_url_expires_at":   job.get("delivery_url_expires_at"),
+        "last_uploaded_at":          job.get("last_uploaded_at"),
+    }
+
+
