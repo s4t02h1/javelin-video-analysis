@@ -76,8 +76,10 @@ SNS_PERMISSION_LABELS: dict = {
 
 PLAN_LABELS: dict = {
     "free_preview": "🆓 無料プレビュー",
-    "data_sheet":   "📊 データシート",
-    "full_report":  "📦 フルレポート",
+    "light":        "💡 ライト版",
+    "data_sheet":   "📊 データシート版",
+    "full_report":  "📦 フルレポート版",
+    "comparison":   "🔀 2動画比較版",
 }
 
 
@@ -1306,7 +1308,7 @@ with tab_history:
                             index=_angle_opts.index(_ci_angle_val if _ci_angle_val in _angle_opts else "unknown"),
                         )
                     with _ci_c3:
-                        _plan_opts = ["free_preview", "data_sheet", "full_report"]
+                        _plan_opts = list(PLAN_LABELS.keys())
                         _ci_plan_val = _ci.get("plan", "free_preview")
                         _ci_plan = st.selectbox(
                             "プラン",
@@ -2555,7 +2557,6 @@ with tab_import:
             }
             _skip_label  = "(skip)"
             _field_opts  = list(_intake_field_labels.keys())
-            _field_labels_list = [_intake_field_labels[k] for k in _field_opts]
 
             # 自動推測: 列名から近い候補を選ぶ
             def _guess_field(col: str) -> str:
@@ -2616,7 +2617,8 @@ with tab_import:
                     for _ri in _selected_rows:
                         try:
                             _row = _df.iloc[_ri]
-                            _new_jid = create_job()
+                            _new_job  = create_job(height_m=None, mode="basic")
+                            _new_jid  = _new_job["job_id"]
                             _intake_kwargs: dict = {}
                             for _col_n, _field_k in _mapping.items():
                                 if _field_k == _skip_label:
