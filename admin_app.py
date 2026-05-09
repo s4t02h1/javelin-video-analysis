@@ -56,7 +56,6 @@ try:
         get_s3_config,
         build_s3_key_for_job,
         upload_file_to_s3,
-        upload_directory_to_s3,
         generate_presigned_url,
         generate_presigned_urls_for_job,
         get_presigned_url_expires_at,
@@ -64,6 +63,7 @@ try:
     )
     from src.artifact_manifest import (
         build_artifact_manifest,
+        build_comparison_artifact_manifest,
         save_artifact_manifest,
         load_artifact_manifest,
     )
@@ -2261,10 +2261,12 @@ with tab_history:
                     for _pkg_type, _pkg_label, _ta_key in _msg_specs:
                         st.markdown(f"**{_pkg_label}**")
                         try:
+                            _delivery_url = get_job_s3_status(job).get("delivery_page_url") or ""
                             _msg_text = build_delivery_message(
                                 job=job,
                                 customer_info=_hci,
                                 package_type=_pkg_type,
+                                delivery_page_url=_delivery_url,
                             )
                         except Exception as _me:
                             _msg_text = f"(メッセージ生成エラー: {_me})"
@@ -2487,152 +2489,158 @@ with tab_history:
             with st.expander("☁️ P. S3納品 / 納品URL発行", expanded=False):
                 _s3_modules_ok = _S3_MODULES_AVAILABLE
                 _s3_ok = is_s3_configured()
-                if not _s3_modules_ok or not _s3_ok:
+                if not _s3_modules_ok:
+                    st.warning(
+                        "S3モジュールが読み込めません。`pip install boto3` でインストールしてください。"
+                    )
+                elif not _s3_ok:
                     st.warning(
                         "S3が未設定です。`.env` に `JVA_BUCKET` を設定してください。  \n"
                         "設定方法: `docs/s3_delivery_setup.md` を参照。"
                     )
-                    if not _S3_MODULES_AVAILABLE:
-                        st.caption("boto3が未インストールです: `pip install boto3`")
+
+                if not _s3_modules_ok:
+                    # S3モジュール自体が読み込めない場合はここで終了
+                    pass
                 else:
-                    _s3_cfg = get_s3_config()
-                    st.caption(
-                        f"S3バケット: `{_s3_cfg['bucket']}` / リージョン: `{_s3_cfg['region']}` / "
-                        f"プレフィックス: `{_s3_cfg['prefix']}` / URL有効期限: {_s3_cfg['expires_seconds']//86400}日"
-                    )
-
-                # 現在の S3 ステータス表示
-                _s3_status = get_job_s3_status(_job)
-                _upload_status_label = {
-                    "none": "未アップロード",
-                    "partial": "一部アップロード済",
-                    "complete": "アップロード完了",
-                }.get(_s3_status["upload_status"], "—")
-                st.write(f"**アップロード状況:** {_upload_status_label}")
-                if _s3_status["last_uploaded_at"]:
-                    st.caption(f"最終アップロード: {_s3_status['last_uploaded_at']}")
-                if _s3_status["delivery_url_expires_at"]:
-                    st.caption(f"URL有効期限: {_s3_status['delivery_url_expires_at']}")
-
-                # 成果物マニフェスト
-                st.markdown("---")
-                st.markdown("**① 成果物マニフェスト確認**")
-                if st.button("📋 マニフェスト生成 / 更新", key=f"manifest_gen_{_job_id}"):
-                    with st.spinner("マニフェスト生成中..."):
-                        _manifest = build_artifact_manifest(
-                            job_dir=_job_dir,
-                            job_id=_job_id,
+                    if _s3_ok:
+                        _s3_cfg = get_s3_config()
+                        st.caption(
+                            f"S3バケット: `{_s3_cfg['bucket']}` / リージョン: `{_s3_cfg['region']}` / "
+                            f"プレフィックス: `{_s3_cfg['prefix']}` / URL有効期限: {_s3_cfg['expires_seconds']//86400}日"
                         )
-                        save_artifact_manifest(_job_dir, _manifest)
-                        st.success(f"✅ {_manifest['total_count']} 件を検出しました（存在: {_manifest['exists_count']} / 未生成: {_manifest['missing_count']}）")
-                        st.session_state[f"manifest_{_job_id}"] = _manifest
 
-                _cached_manifest = st.session_state.get(f"manifest_{_job_id}") or load_artifact_manifest(_job_dir)
-                if _cached_manifest:
-                    with st.expander("成果物一覧を表示", expanded=False):
-                        for _art in _cached_manifest.get("artifacts", []):
-                            _icon = "✅" if _art["exists"] else "❌"
-                            st.caption(f"{_icon} [{_art['category']}] {_art['label']} — `{_art['local_path']}`")
+                    # 現在の S3 ステータス表示
+                    _s3_status = get_job_s3_status(_job)
+                    _upload_status_label = {
+                        "none": "未アップロード",
+                        "partial": "一部アップロード済",
+                        "complete": "アップロード完了",
+                    }.get(_s3_status["upload_status"], "—")
+                    st.write(f"**アップロード状況:** {_upload_status_label}")
+                    if _s3_status["last_uploaded_at"]:
+                        st.caption(f"最終アップロード: {_s3_status['last_uploaded_at']}")
+                    if _s3_status["delivery_url_expires_at"]:
+                        st.caption(f"URL有効期限: {_s3_status['delivery_url_expires_at']}")
 
-                # S3 アップロード
-                st.markdown("---")
-                st.markdown("**② S3 アップロード**")
-                _upload_btn_disabled = not (_s3_modules_ok and _s3_ok)
-                if st.button(
-                    "☁️ 成果物を S3 にアップロード",
-                    key=f"s3_upload_{_job_id}",
-                    disabled=_upload_btn_disabled,
-                ):
-                    _manifest = _cached_manifest or build_artifact_manifest(_job_dir, _job_id)
-                    _uploaded_list: list[dict] = []
-                    _failed_list: list[dict] = []
-                    _arts = [a for a in _manifest.get("artifacts", []) if a["exists"]]
-                    with st.spinner(f"S3 アップロード中... ({len(_arts)} 件)"):
-                        for _art in _arts:
-                            _lpath = _job_dir / _art["local_path"]
-                            _res = upload_file_to_s3(
-                                _lpath,
-                                _art["s3_key"],
-                                content_type=_art.get("content_type"),
+                    # 成果物マニフェスト
+                    st.markdown("---")
+                    st.markdown("**① 成果物マニフェスト確認**")
+                    if st.button("📋 マニフェスト生成 / 更新", key=f"manifest_gen_{_job_id}"):
+                        with st.spinner("マニフェスト生成中..."):
+                            _manifest = build_artifact_manifest(
+                                job_dir=_job_dir,
+                                job_id=_job_id,
                             )
-                            if _res["ok"]:
-                                _uploaded_list.append(_res)
-                            else:
-                                _failed_list.append(_res)
-                    # ログ保存
-                    _expires_at_log = get_presigned_url_expires_at()
-                    _log_path = _REPO_ROOT / "logs" / "s3_upload.log"
-                    append_upload_log(_log_path, _job_id, _uploaded_list, _failed_list, _expires_at_log)
-                    # ジョブメタ更新
-                    _total_uploaded = len(_uploaded_list)
-                    _total_arts = len(_arts)
-                    _new_status = "complete" if not _failed_list else ("partial" if _uploaded_list else "none")
-                    update_job_s3_delivery(
-                        _job_id,
-                        delivery_page_s3_key="",
-                        delivery_page_url=_s3_status.get("delivery_page_url") or "",
-                        delivery_url_expires_at=_expires_at_log,
-                        uploaded_artifacts_count=_total_uploaded,
-                        upload_status=_new_status,
-                    )
-                    if _failed_list:
-                        st.warning(f"⚠️ {len(_failed_list)} 件失敗: " + ", ".join(f["s3_key"].split("/")[-1] for f in _failed_list[:5]))
-                    st.success(f"✅ {_total_uploaded} 件アップロード完了 (失敗: {len(_failed_list)} 件)")
-                    st.rerun()
+                            save_artifact_manifest(_job_dir, _manifest)
+                            st.success(f"✅ {_manifest['total_count']} 件を検出しました（存在: {_manifest['exists_count']} / 未生成: {_manifest['missing_count']}）")
+                            st.session_state[f"manifest_{_job_id}"] = _manifest
 
-                # 納品ページ HTML 生成 & URL 発行
-                st.markdown("---")
-                st.markdown("**③ 納品ページ生成 & URL 発行**")
-                if st.button(
-                    "🌐 納品ページHTMLを生成して S3 にアップロード",
-                    key=f"delivery_html_{_job_id}",
-                    disabled=_upload_btn_disabled,
-                ):
-                    _manifest = _cached_manifest or build_artifact_manifest(_job_dir, _job_id)
-                    with st.spinner("presigned URL 生成中..."):
-                        _presigned = generate_presigned_urls_for_job(_job_id, _manifest.get("artifacts", []))
-                    _expires_at_str = get_presigned_url_expires_at()
-                    _ci = get_customer_info(_job_id)
-                    with st.spinner("納品ページ HTML 生成中..."):
-                        _html = generate_delivery_page(
-                            manifest=_manifest,
-                            customer_info=_ci,
-                            job_id=_job_id,
-                            presigned_urls=_presigned,
-                            expires_at=_expires_at_str,
-                            job_label=_job_id[:16],
-                        )
-                        _html_path = save_delivery_page(_job_dir / "report", _html)
+                    _cached_manifest = st.session_state.get(f"manifest_{_job_id}") or load_artifact_manifest(_job_dir)
+                    if _cached_manifest:
+                        with st.expander("成果物一覧を表示", expanded=False):
+                            for _art in _cached_manifest.get("artifacts", []):
+                                _icon = "✅" if _art["exists"] else "❌"
+                                st.caption(f"{_icon} [{_art['category']}] {_art['label']} — `{_art['local_path']}`")
+
                     # S3 アップロード
-                    _html_s3_key = build_s3_key_for_job(_job_id, "delivery/delivery_page.html")
-                    _html_result = upload_file_to_s3(_html_path, _html_s3_key, content_type="text/html")
-                    if _html_result["ok"]:
-                        _page_url = generate_presigned_url(_html_s3_key) or ""
+                    st.markdown("---")
+                    st.markdown("**② S3 アップロード**")
+                    _upload_btn_disabled = not _s3_ok
+                    if st.button(
+                        "☁️ 成果物を S3 にアップロード",
+                        key=f"s3_upload_{_job_id}",
+                        disabled=_upload_btn_disabled,
+                    ):
+                        _manifest = _cached_manifest or build_artifact_manifest(_job_dir, _job_id)
+                        _uploaded_list: list[dict] = []
+                        _failed_list: list[dict] = []
+                        _arts = [a for a in _manifest.get("artifacts", []) if a["exists"]]
+                        with st.spinner(f"S3 アップロード中... ({len(_arts)} 件)"):
+                            for _art in _arts:
+                                _lpath = _job_dir / _art["local_path"]
+                                _res = upload_file_to_s3(
+                                    _lpath,
+                                    _art["s3_key"],
+                                    content_type=_art.get("content_type"),
+                                )
+                                if _res["ok"]:
+                                    _uploaded_list.append(_res)
+                                else:
+                                    _failed_list.append(_res)
+                        # ログ保存
+                        _expires_at_log = get_presigned_url_expires_at()
+                        _log_path = _REPO_ROOT / "logs" / "s3_upload.log"
+                        append_upload_log(_log_path, _job_id, _uploaded_list, _failed_list, _expires_at_log)
+                        # ジョブメタ更新
+                        _total_uploaded = len(_uploaded_list)
+                        _new_status = "complete" if not _failed_list else ("partial" if _uploaded_list else "none")
                         update_job_s3_delivery(
                             _job_id,
-                            delivery_page_s3_key=_html_s3_key,
-                            delivery_page_url=_page_url,
-                            delivery_url_expires_at=_expires_at_str,
-                            uploaded_artifacts_count=_s3_status.get("uploaded_artifacts_count") or 0,
-                            upload_status=_s3_status.get("upload_status") or "partial",
+                            delivery_page_s3_key="",
+                            delivery_page_url=_s3_status.get("delivery_page_url") or "",
+                            delivery_url_expires_at=_expires_at_log,
+                            uploaded_artifacts_count=_total_uploaded,
+                            upload_status=_new_status,
                         )
-                        st.success("✅ 納品ページをアップロードしました。")
+                        if _failed_list:
+                            st.warning(f"⚠️ {len(_failed_list)} 件失敗: " + ", ".join(f["s3_key"].split("/")[-1] for f in _failed_list[:5]))
+                        st.success(f"✅ {_total_uploaded} 件アップロード完了 (失敗: {len(_failed_list)} 件)")
                         st.rerun()
-                    else:
-                        st.error(f"❌ アップロード失敗: {_html_result.get('error')}")
 
-                # 発行済み URL 表示
-                _cur_s3 = get_job_s3_status(load_job(_job_id) if _s3_ok else _job)
-                if _cur_s3.get("delivery_page_url"):
-                    st.markdown("**📱 納品URL（LINEで送付）:**")
-                    st.text_area(
-                        label="納品URL",
-                        value=_cur_s3["delivery_page_url"],
-                        height=80,
-                        key=f"delivery_url_display_{_job_id}",
-                        label_visibility="collapsed",
-                    )
-                    st.caption(f"有効期限: {_cur_s3.get('delivery_url_expires_at', '—')}")
+                    # 納品ページ HTML 生成 & URL 発行
+                    st.markdown("---")
+                    st.markdown("**③ 納品ページ生成 & URL 発行**")
+                    if st.button(
+                        "🌐 納品ページHTMLを生成して S3 にアップロード",
+                        key=f"delivery_html_{_job_id}",
+                        disabled=_upload_btn_disabled,
+                    ):
+                        _manifest = _cached_manifest or build_artifact_manifest(_job_dir, _job_id)
+                        with st.spinner("presigned URL 生成中..."):
+                            _presigned = generate_presigned_urls_for_job(_job_id, _manifest.get("artifacts", []))
+                        _expires_at_str = get_presigned_url_expires_at()
+                        _ci = get_customer_info(_job_id)
+                        with st.spinner("納品ページ HTML 生成中..."):
+                            _html = generate_delivery_page(
+                                manifest=_manifest,
+                                customer_info=_ci,
+                                job_id=_job_id,
+                                presigned_urls=_presigned,
+                                expires_at=_expires_at_str,
+                                job_label=_job_id[:16],
+                            )
+                            _html_path = save_delivery_page(_job_dir / "report", _html)
+                        # S3 アップロード
+                        _html_s3_key = build_s3_key_for_job(_job_id, "delivery/delivery_page.html")
+                        _html_result = upload_file_to_s3(_html_path, _html_s3_key, content_type="text/html")
+                        if _html_result["ok"]:
+                            _page_url = generate_presigned_url(_html_s3_key) or ""
+                            update_job_s3_delivery(
+                                _job_id,
+                                delivery_page_s3_key=_html_s3_key,
+                                delivery_page_url=_page_url,
+                                delivery_url_expires_at=_expires_at_str,
+                                uploaded_artifacts_count=_s3_status.get("uploaded_artifacts_count") or 0,
+                                upload_status=_s3_status.get("upload_status") or "partial",
+                            )
+                            st.success("✅ 納品ページをアップロードしました。")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ アップロード失敗: {_html_result.get('error')}")
+
+                    # 発行済み URL 表示
+                    _cur_s3 = get_job_s3_status(load_job(_job_id) if _s3_ok else _job)
+                    if _cur_s3.get("delivery_page_url"):
+                        st.markdown("**📱 納品URL（LINEで送付）:**")
+                        st.text_area(
+                            label="納品URL",
+                            value=_cur_s3["delivery_page_url"],
+                            height=80,
+                            key=f"delivery_url_display_{_job_id}",
+                            label_visibility="collapsed",
+                        )
+                        st.caption(f"有効期限: {_cur_s3.get('delivery_url_expires_at', '—')}")
 
 
 # ─── Tab 3: ジョブ比較 ────────────────────────────────────────────────────────
@@ -2892,6 +2900,70 @@ with tab_compare:
                                 st.dataframe(pd.DataFrame(_csrows), use_container_width=True, hide_index=True)
                         except Exception:
                             pass
+
+                    # ── S3納品 / 納品URL発行（比較ジョブ） ────────────────────
+                    if _S3_MODULES_AVAILABLE:
+                        st.divider()
+                        with st.expander("☁️ S3納品 / 納品URL発行（比較ジョブ）", expanded=False):
+                            _cmp_s3_ok = is_s3_configured()
+                            if not _cmp_s3_ok:
+                                st.warning(
+                                    "S3が未設定です。`.env` に `JVA_BUCKET` を設定してください。"
+                                )
+                            else:
+                                _cmp_s3_btn_disabled = False
+
+                                if st.button("📋 マニフェスト生成", key=f"cmp_manifest_{_cid}"):
+                                    with st.spinner("マニフェスト生成中..."):
+                                        _cmp_manifest = build_comparison_artifact_manifest(
+                                            comparison_dir=_cmp_dir_path,
+                                            comparison_id=_cid,
+                                            job_dir_a=_dir_a_path,
+                                            job_dir_b=_dir_b_path,
+                                            label_a=_cla,
+                                            label_b=_clb,
+                                        )
+                                        save_artifact_manifest(_cmp_dir_path, _cmp_manifest)
+                                        st.success(
+                                            f"✅ {_cmp_manifest['total_count']} 件を検出しました"
+                                            f"（存在: {_cmp_manifest['exists_count']} / 未生成: {_cmp_manifest['missing_count']}）"
+                                        )
+                                        st.session_state[f"cmp_manifest_{_cid}"] = _cmp_manifest
+
+                                _cmp_cached = st.session_state.get(f"cmp_manifest_{_cid}") or load_artifact_manifest(_cmp_dir_path)
+
+                                if st.button(
+                                    "☁️ S3 アップロード",
+                                    key=f"cmp_s3_upload_{_cid}",
+                                    disabled=_cmp_s3_btn_disabled,
+                                ):
+                                    _cmp_manifest = _cmp_cached or build_comparison_artifact_manifest(
+                                        comparison_dir=_cmp_dir_path,
+                                        comparison_id=_cid,
+                                        job_dir_a=_dir_a_path,
+                                        job_dir_b=_dir_b_path,
+                                        label_a=_cla,
+                                        label_b=_clb,
+                                    )
+                                    _cmp_arts = [a for a in _cmp_manifest.get("artifacts", []) if a["exists"]]
+                                    _cmp_uploaded: list[dict] = []
+                                    _cmp_failed: list[dict] = []
+                                    with st.spinner(f"S3 アップロード中... ({len(_cmp_arts)} 件)"):
+                                        for _ca in _cmp_arts:
+                                            _clpath = (_cmp_dir_path / _ca["local_path"]) if not (_cmp_dir_path / _ca["local_path"]).is_absolute() else Path(_ca["local_path"])
+                                            _cres = upload_file_to_s3(
+                                                _clpath,
+                                                _ca["s3_key"],
+                                                content_type=_ca.get("content_type"),
+                                            )
+                                            if _cres["ok"]:
+                                                _cmp_uploaded.append(_cres)
+                                            else:
+                                                _cmp_failed.append(_cres)
+                                    if _cmp_failed:
+                                        st.warning(f"⚠️ {len(_cmp_failed)} 件失敗")
+                                    st.success(f"✅ {len(_cmp_uploaded)} 件アップロード完了")
+                                    st.rerun()
 
         # 既存の比較サマリー（compare_jobs.py 出力の旧形式）を参照
         st.divider()

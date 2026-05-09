@@ -83,7 +83,7 @@ def generate_delivery_page(
     }
 
     # ── ヘッダー情報 ─────────────────────────────────────────────────────────
-    athlete_name = _e(customer_info.get("name", ""))
+    athlete_name = _e(customer_info.get("customer_name") or customer_info.get("nickname") or "")
     coach_name   = _e(customer_info.get("coach", ""))
     event_name   = _e(customer_info.get("event", ""))
     header_items = []
@@ -98,8 +98,6 @@ def generate_delivery_page(
     # ── セクションHTML生成 ─────────────────────────────────────────────────────
     section_htmls: list[str] = []
     all_zip_links: list[str] = []
-    has_video = False
-    has_first_pdf = False
 
     for cat, items in categories.items():
         icon = _cat_icon.get(cat, "📄")
@@ -111,7 +109,6 @@ def generate_delivery_page(
             label = _e(a.get("label", ""))
             exists = a.get("exists", False)
             ct = a.get("content_type", "")
-            local_path = a.get("local_path", "")
 
             if not url:
                 items_html.append(
@@ -135,12 +132,6 @@ def generate_delivery_page(
                 </a>"""
             )
             items_html.append(item_html)
-
-            # 動画・最初のPDF の「まず見る」ボタン用
-            if ct.startswith("video/") and not has_video:
-                has_video = True
-            if ct == "application/pdf" and cat == "最初に読む資料" and not has_first_pdf:
-                has_first_pdf = True
 
             # ZIP は一括ダウンロードセクションにも追加
             if ct == "application/zip":
@@ -362,6 +353,7 @@ def generate_delivery_page(
         <li>このURLは{expires_display or "一定期間"}有効です。期限後はアクセスできなくなります。</li>
         <li>このURLを第三者と共有しないでください。</li>
         <li>動画・PDFは個人情報を含む場合があります。取り扱いにご注意ください。</li>
+        <li>本解析は動きの可視化を目的とした参考資料です。医療診断・怪我の診断・専門的な競技指導を代替するものではありません。</li>
         <li>ご不明な点はご連絡ください。</li>
       </ul>
     </section>

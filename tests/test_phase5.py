@@ -370,7 +370,7 @@ class TestDeliveryPage:
         html = generate_delivery_page(
             manifest=self._minimal_manifest(),
             job_id="test_job_001",
-            customer_info={"name": "<script>alert('xss')</script>"},
+            customer_info={"customer_name": "<script>alert('xss')</script>"},
         )
         assert "<script>alert('xss')</script>" not in html
         assert "&lt;script&gt;" in html

@@ -56,7 +56,6 @@ def _entry(
 ) -> dict:
     """成果物エントリを生成する。"""
     exists = local_path.exists() and local_path.is_file()
-    rel_path = local_path.relative_to(job_dir).as_posix() if exists else str(local_path.relative_to(job_dir)).replace("\\", "/") if local_path.is_relative_to(job_dir) else str(local_path)
     # ローカルパスは常に相対表現で持つ
     try:
         rel_path = local_path.relative_to(job_dir).as_posix()
