@@ -154,3 +154,65 @@ def collect_output_files(job_id: str) -> List[str]:
         if sub_dir.exists():
             files.extend(str(f) for f in sub_dir.iterdir() if f.is_file())
     return sorted(files)
+
+
+# ── 顧客情報 (customer_info.json) ─────────────────────────────────────────────
+
+_CUSTOMER_INFO_DEFAULTS: dict = {
+    "customer_name":   "",
+    "instagram_id":    "",
+    "event":           "javelin",
+    "dominant_hand":   "unknown",
+    "height_m":        None,
+    "camera_angle":    "unknown",
+    "request_note":    "",
+    "coach_comment":   "",
+    "delivery_status": "not_started",
+    "paid_status":     "unknown",
+    "created_at":      "",
+    "updated_at":      "",
+}
+
+
+def _customer_info_path(job_id: str) -> Path:
+    """customer_info.json のパスを返す。"""
+    return JOBS_DIR / job_id / "customer_info.json"
+
+
+def get_customer_info(job_id: str) -> dict:
+    """customer_info.json を読み込んで返す。
+
+    ファイルが存在しない場合はデフォルト値を返す。
+    フィールドが追加された場合はデフォルト値でマージして返す（前方互換）。
+    """
+    path = _customer_info_path(job_id)
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            data: dict = json.load(f)
+        # 新フィールドが追加された場合のマイグレーション（既存値を優先）
+        return {**_CUSTOMER_INFO_DEFAULTS, **data}
+    # ファイルがない場合はデフォルト（created_at は現在時刻）
+    now = datetime.now().isoformat(timespec="seconds")
+    return {**_CUSTOMER_INFO_DEFAULTS, "created_at": now, "updated_at": now}
+
+
+def update_customer_info(job_id: str, **kwargs) -> dict:
+    """customer_info.json の指定フィールドを更新して保存し、更新後の dict を返す。
+
+    使用例:
+        update_customer_info(job_id, customer_name="山田 太郎", paid_status="data_sheet")
+        update_customer_info(job_id, delivery_status="preview_delivered")
+    """
+    info = get_customer_info(job_id)
+    # created_at は初回設定後は上書きしない
+    existing_created = info.get("created_at") or ""
+    info.update(kwargs)
+    if existing_created:
+        info["created_at"] = existing_created
+    elif not info.get("created_at"):
+        info["created_at"] = datetime.now().isoformat(timespec="seconds")
+    info["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = _customer_info_path(job_id)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(info, f, ensure_ascii=False, indent=2)
+    return info

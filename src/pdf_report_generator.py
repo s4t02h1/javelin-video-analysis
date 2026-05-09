@@ -235,6 +235,25 @@ def _hr(styles: dict) -> List:
     return [Spacer(1, 4), HRFlowable(width=CONTENT_W, color=MID_GRAY), Spacer(1, 4)]
 
 
+def _sanitize_for_helvetica(text: str) -> str:
+    """Helvetica (Latin-1) で表現できない文字を '?' に置換して返す。
+
+    TODO: 日本語フォント対応
+          reportlab.pdfbase.ttfonts.TTFont や
+          reportlab.pdfbase.cidfonts.UnicodeCIDFont を使って
+          日本語フォント (例: NotoSansCJK, IPA明朝) を登録することで
+          文字化けを解消できる。現状は Helvetica のみ使用。
+    """
+    result: list[str] = []
+    for ch in text:
+        try:
+            ch.encode("latin-1")
+            result.append(ch)
+        except (UnicodeEncodeError, ValueError):
+            result.append("?")
+    return "".join(result)
+
+
 # ── ページビルダー関数 ────────────────────────────────────────────────────────
 
 def _build_cover(job: dict, rep: dict, styles: dict) -> List:
@@ -445,6 +464,59 @@ def _build_graphs_pages(report_dir: Path, styles: dict,
     return story
 
 
+def _build_coach_comment(customer_info: dict, styles: dict) -> List:
+    """Coach Comment / Simple Review セクションを生成する。
+
+    customer_info.json の内容を元に顧客情報・相談メモ・コーチコメントを表示する。
+    各フィールドが空または存在しない場合でも安全に動作する。
+
+    Parameters
+    ----------
+    customer_info : dict
+        customer_info.json を読み込んだ dict（空 dict でも可）
+    styles : dict
+        _make_styles() の返り値
+    """
+    story: List = []
+    story.append(Paragraph("Coach Comment / Simple Review", styles["section_heading"]))
+    story.extend(_hr(styles))
+    story.append(Spacer(1, 0.2 * cm))
+
+    # ── 顧客・競技情報テーブル ─────────────────────────────────────────────────
+    def _s(key: str, default: str = "\u2014") -> str:
+        """フィールドを安全に取り出してサニタイズする。"""
+        v = customer_info.get(key) or ""
+        return _sanitize_for_helvetica(str(v)) if v else default
+
+    customer_pairs: list[tuple[str, str]] = [
+        ("Customer Name", _s("customer_name")),
+        ("Event",         _s("event")),
+        ("Dominant Hand", _s("dominant_hand")),
+        ("Camera Angle",  _s("camera_angle")),
+    ]
+    story.append(Paragraph("Athlete Information", styles["label"]))
+    story.append(_kv_table(customer_pairs, styles))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # ── Request Note ──────────────────────────────────────────────────────────
+    request_note: str = customer_info.get("request_note") or ""
+    if request_note:
+        story.append(Paragraph("Request Note", styles["label"]))
+        story.append(Paragraph(_sanitize_for_helvetica(request_note), styles["body"]))
+        story.append(Spacer(1, 0.4 * cm))
+
+    # ── Coach Comment ─────────────────────────────────────────────────────────
+    story.append(Paragraph("Coach Comment", styles["label"]))
+    coach_comment: str = customer_info.get("coach_comment") or ""
+    if coach_comment:
+        story.append(Paragraph(_sanitize_for_helvetica(coach_comment), styles["body"]))
+    else:
+        story.append(Paragraph("(No comment entered.)", styles["body_sm"]))
+
+    story.append(PageBreak())
+    return story
+
+
 def _build_disclaimer(styles: dict) -> List:
     story = []
     story.append(Paragraph("Notes & Disclaimer", styles["section_heading"]))
@@ -516,12 +588,19 @@ def generate_pdf_report_for_job(job_dir: Path) -> Path:
     elif rep_json_files:
         rep = _load_json(rep_json_files[-1]) or {}
 
+    # customer_info.json の読み込み（存在しない場合は空 dict）
+    customer_info: dict = _load_json(job_dir / "customer_info.json") or {}
+
     styles = _make_styles()
 
     # ストーリー組み立て
     story: List = []
     story.extend(_build_cover(job, rep, styles))
     story.extend(_build_analysis_summary(job, rep, report_dir, styles))
+    try:
+        story.extend(_build_coach_comment(customer_info, styles))
+    except Exception as _ce:
+        logger.warning(f"[pdf_report_generator] coach comment section skipped: {_ce}")
     story.extend(_build_frames_pages(report_dir, styles, images_per_page=4))
     story.extend(_build_graphs_pages(report_dir, styles, images_per_page=2))
     story.extend(_build_disclaimer(styles))

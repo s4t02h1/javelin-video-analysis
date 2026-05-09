@@ -25,8 +25,10 @@ from job_manager import (
     JOBS_DIR,
     collect_output_files,
     create_job,
+    get_customer_info,
     get_job_dir,
     list_jobs,
+    update_customer_info,
     update_job,
 )
 
@@ -82,9 +84,23 @@ def _build_cmd(job: dict) -> list:
 
 
 def _run_job(job_id: str) -> None:
-    """解析をサブプロセスで同期実行し、job.json のステータスを更新する。"""
+    """解析をサブプロセスで同期実行し、job.json のステータスを更新する。
+
+    ログ出力:
+        jobs/<job_id>/logs/command.txt  — 実行コマンド
+        jobs/<job_id>/logs/stdout.txt   — 標準出力
+        jobs/<job_id>/logs/stderr.txt   — 標準エラー出力
+    """
     job = update_job(job_id, status="running")
     cmd = _build_cmd(job)
+
+    # logs/ ディレクトリを準備
+    logs_dir: Path = get_job_dir(job_id) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    (logs_dir / "command.txt").write_text(
+        " ".join(cmd), encoding="utf-8"
+    )
+
     try:
         result = subprocess.run(
             cmd,
@@ -94,14 +110,33 @@ def _run_job(job_id: str) -> None:
             errors="replace",
             cwd=str(_REPO_ROOT),
         )
+        # stdout / stderr をファイルに保存
+        (logs_dir / "stdout.txt").write_text(
+            result.stdout or "", encoding="utf-8"
+        )
+        (logs_dir / "stderr.txt").write_text(
+            result.stderr or "", encoding="utf-8"
+        )
         if result.returncode == 0:
             output_files = collect_output_files(job_id)
-            update_job(job_id, status="completed", output_files=output_files, error=None)
+            update_job(
+                job_id,
+                status="completed",
+                output_files=output_files,
+                error=None,
+                returncode=0,
+            )
         else:
             err = (result.stderr or result.stdout or "Unknown error").strip()
-            update_job(job_id, status="failed", error=err[:2000])
+            update_job(
+                job_id,
+                status="failed",
+                error=err[:2000],
+                returncode=result.returncode,
+            )
     except Exception as exc:
-        update_job(job_id, status="failed", error=str(exc))
+        (logs_dir / "stderr.txt").write_text(str(exc), encoding="utf-8")
+        update_job(job_id, status="failed", error=str(exc), returncode=-1)
 
 
 def _read_video_bytes(path: Path) -> bytes | None:
@@ -177,6 +212,71 @@ def _classify_job_files(job_dir: Path, output_files: list) -> dict:
     return result
 
 
+# ── 納品メッセージ生成 ─────────────────────────────────────────────────────────
+
+def build_delivery_message(
+    job: dict,
+    customer_info: dict,
+    package_type: str,
+) -> str:
+    """納品メッセージ文テンプレートを生成する。
+
+    Parameters
+    ----------
+    job : dict
+        job.json の内容。
+    customer_info : dict
+        customer_info.json の内容（空 dict でも安全）。
+    package_type : str
+        'free_preview' | 'data_sheet' | 'full_report'
+
+    Returns
+    -------
+    str
+        コピペ用の納品メッセージ文。
+    """
+    name: str  = customer_info.get("customer_name") or ""
+    event: str = customer_info.get("event") or "javelin"
+
+    greeting = f"{name}様、お待たせいたしました！" if name else "お待たせいたしました！"
+
+    if package_type == "free_preview":
+        return (
+            f"{greeting}\n"
+            f"{event}の動画解析の無料プレビュー版が完成しました。\n"
+            "\n"
+            "今回の解析はフォームの良し悪しを断定するものではなく、"
+            "動きの軌跡やタイミングを見返しやすくするための可視化資料です。\n"
+            "\n"
+            "必要であれば、CSVデータ・グラフ・PDFレポートを含む詳細版も作成できます。"
+            "お気軽にお申し付けください。"
+        )
+
+    elif package_type == "data_sheet":
+        return (
+            f"{greeting}\n"
+            f"{event}の右手首の高さ変化、腕の軌道、代表フレーム、"
+            "CSVデータをまとめた「有料データシート版」が完成しました。\n"
+            "\n"
+            "練習の振り返りや指導者との共有に使いやすい内容です。\n"
+            "\n"
+            "フルレポート（PDF＋全動画）もご希望の場合はお申し付けください。"
+        )
+
+    elif package_type == "full_report":
+        return (
+            f"{greeting}\n"
+            f"{event}の「有料フルレポート版」が完成しました。\n"
+            "\n"
+            "PDFレポート、解析動画、CSV、グラフ、代表フレームをまとめたフルセットです。\n"
+            "\n"
+            "あくまで参考資料として、今後の練習の振り返りにご活用ください。"
+        )
+
+    else:
+        return f"package_type '{package_type}' は未定義です。"
+
+
 # ── ページ設定 ─────────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -221,6 +321,31 @@ with tab_new:
             help="全バリエーションを選ぶと 骨格・ヒートマップ・HUD・スティックマン の4ファイルを同時出力します",
         )
 
+    st.markdown("---")
+    st.markdown("#### 👤 顧客情報（任意）")
+    _nj_col1, _nj_col2 = st.columns(2)
+    with _nj_col1:
+        customer_name = st.text_input("顧客名", placeholder="山田 太郎")
+        instagram_id  = st.text_input("Instagram ID", placeholder="@username")
+        event         = st.text_input("種目", value="javelin")
+    with _nj_col2:
+        dominant_hand = st.selectbox(
+            "利き腕",
+            options=["right", "left", "unknown"],
+            format_func=lambda x: {"right": "右 (right)", "left": "左 (left)", "unknown": "不明 (unknown)"}[x],
+        )
+        camera_angle = st.selectbox(
+            "撮影方向",
+            options=["side", "back", "front", "diagonal", "unknown"],
+            format_func=lambda x: {"side": "側面 (side)", "back": "後方 (back)", "front": "正面 (front)", "diagonal": "斜め (diagonal)", "unknown": "不明 (unknown)"}[x],
+        )
+        paid_status = st.selectbox(
+            "有料ステータス",
+            options=["unknown", "free", "data_sheet", "full_report"],
+            format_func=lambda x: {"unknown": "未設定", "free": "無料", "data_sheet": "データシート", "full_report": "フルレポート"}[x],
+        )
+    request_note = st.text_area("相談内容メモ", placeholder="競技歴・フォームの悩みなど", height=80)
+
     run_btn = st.button(
         "▶ 解析を開始",
         type="primary",
@@ -233,6 +358,17 @@ with tab_new:
         with st.spinner("ジョブを準備中..."):
             job = create_job(height_m=h, mode=mode)
             Path(job["input_file"]).write_bytes(uploaded.read())
+            update_customer_info(
+                job["job_id"],
+                customer_name=customer_name,
+                instagram_id=instagram_id,
+                event=event,
+                dominant_hand=dominant_hand,
+                height_m=h,
+                camera_angle=camera_angle,
+                paid_status=paid_status,
+                request_note=request_note,
+            )
 
         st.info(f"ジョブID: `{job['job_id']}` — 解析を開始します...")
 
@@ -334,6 +470,169 @@ with tab_history:
                         st.video(_vb)
                 else:
                     st.warning("入力ファイルが見つかりません。")
+
+            # ══════════════════════════════════════════════════════════════════            # I. 解析ログ
+            # ══════════════════════════════════════════════════════════════
+            _is_failed = job.get("status") == "failed"
+            with st.expander(
+                "🗒️ I. 解析ログ",
+                expanded=_is_failed,   # 失敗時は自動展開
+            ):
+                _logs_dir = _job_dir / "logs"
+
+                # ─ 失敗時の簡易チェックリスト ───────────────────────────────────────────────
+                if _is_failed:
+                    st.error("❌ 解析に失敗しています。以下の点を確認してください。")
+                    st.markdown("""
+- ❑ **動画ファイルが壊れていないか** — VLC 等で再生確認してください
+- ❑ **mp4形式か** — `.mp4` 以外の形式（mov, avi）は現状非対応です
+- ❑ **MediaPipeがインストールされているか** — `pip install mediapipe` でインストール
+- ❑ **Pythonバージョンが対応しているか** — Python 3.10—3.12 準拠
+- ❑ **出力フォルダへの書き込み権限があるか** — `jobs/` フォルダのアクセス権を確認
+""")
+                    st.divider()
+
+                # ─ returncode ────────────────────────────────────────────────────────────
+                _rc = job.get("returncode")
+                if _rc is not None:
+                    _rc_color = "🟢" if _rc == 0 else "🔴"
+                    st.caption(f"{_rc_color} returncode: `{_rc}`")
+
+                if not _logs_dir.exists():
+                    st.info("ログファイルがありません。このジョブはログ機能追加前に実行されたものです。")
+                else:
+                    # ─ command.txt ───────────────────────────────────────────────────────
+                    _cmd_f = _logs_dir / "command.txt"
+                    with st.expander("🖥️ 実行コマンド", expanded=False):
+                        if _cmd_f.exists():
+                            st.code(
+                                _cmd_f.read_text(encoding="utf-8"),
+                                language="bash",
+                            )
+                        else:
+                            st.caption("command.txt がありません")
+
+                    # ─ stderr.txt ──────────────────────────────────────────────────────
+                    _err_f = _logs_dir / "stderr.txt"
+                    with st.expander("🚨 stderr（エラー出力）", expanded=_is_failed):
+                        if _err_f.exists():
+                            _err_text = _err_f.read_text(encoding="utf-8", errors="replace")
+                            if _err_text.strip():
+                                st.code(_err_text, language="text")
+                            else:
+                                st.caption("（出力なし）")
+                        else:
+                            st.caption("stderr.txt がありません")
+
+                    # ─ stdout.txt ────────────────────────────────═══════════════════
+                    _out_f = _logs_dir / "stdout.txt"
+                    with st.expander("📜 stdout（標準出力）", expanded=False):
+                        if _out_f.exists():
+                            _out_text = _out_f.read_text(encoding="utf-8", errors="replace")
+                            if _out_text.strip():
+                                st.code(_out_text, language="text")
+                            else:
+                                st.caption("（出力なし）")
+                        else:
+                            st.caption("stdout.txt がありません")
+
+            # ══════════════════════════════════════════════════════════════            # G. Customer Info（顧客情報）
+            # ══════════════════════════════════════════════════════════════════
+            with st.expander("👤 G. 顧客情報 / Customer Info", expanded=True):
+                _ci = get_customer_info(selected_id)
+                with st.form(key=f"ci_form_{selected_id}"):
+                    _ci_c1, _ci_c2 = st.columns(2)
+                    with _ci_c1:
+                        _ci_name = st.text_input(
+                            "顧客名", value=_ci.get("customer_name", "")
+                        )
+                        _ci_ig = st.text_input(
+                            "Instagram ID", value=_ci.get("instagram_id", "")
+                        )
+                        _ci_event = st.text_input(
+                            "種目", value=_ci.get("event", "javelin")
+                        )
+                    with _ci_c2:
+                        _hand_opts = ["right", "left", "unknown"]
+                        _hand_labels = {"right": "右 (right)", "left": "左 (left)", "unknown": "不明 (unknown)"}
+                        _ci_hand = st.selectbox(
+                            "利き腕",
+                            options=_hand_opts,
+                            format_func=lambda x: _hand_labels[x],
+                            index=_hand_opts.index(
+                                _ci.get("dominant_hand", "unknown")
+                                if _ci.get("dominant_hand") in _hand_opts else "unknown"
+                            ),
+                        )
+                        _angle_opts = ["side", "back", "front", "diagonal", "unknown"]
+                        _angle_labels = {"side": "側面 (side)", "back": "後方 (back)", "front": "正面 (front)", "diagonal": "斜め (diagonal)", "unknown": "不明 (unknown)"}
+                        _ci_angle = st.selectbox(
+                            "撮影方向",
+                            options=_angle_opts,
+                            format_func=lambda x: _angle_labels[x],
+                            index=_angle_opts.index(
+                                _ci.get("camera_angle", "unknown")
+                                if _ci.get("camera_angle") in _angle_opts else "unknown"
+                            ),
+                        )
+                        _paid_opts = ["unknown", "free", "data_sheet", "full_report"]
+                        _paid_labels = {"unknown": "未設定", "free": "無料", "data_sheet": "データシート", "full_report": "フルレポート"}
+                        _ci_paid = st.selectbox(
+                            "有料ステータス",
+                            options=_paid_opts,
+                            format_func=lambda x: _paid_labels[x],
+                            index=_paid_opts.index(
+                                _ci.get("paid_status", "unknown")
+                                if _ci.get("paid_status") in _paid_opts else "unknown"
+                            ),
+                        )
+                    _dstatus_opts = ["not_started", "analyzed", "preview_delivered", "paid_delivered", "completed"]
+                    _dstatus_labels = {
+                        "not_started":       "未着手",
+                        "analyzed":          "解析済み",
+                        "preview_delivered": "プレビュー納品済み",
+                        "paid_delivered":    "有料納品済み",
+                        "completed":         "完了",
+                    }
+                    _ci_dstatus = st.selectbox(
+                        "納品ステータス",
+                        options=_dstatus_opts,
+                        format_func=lambda x: _dstatus_labels[x],
+                        index=_dstatus_opts.index(
+                            _ci.get("delivery_status", "not_started")
+                            if _ci.get("delivery_status") in _dstatus_opts else "not_started"
+                        ),
+                    )
+                    _ci_note = st.text_area(
+                        "相談内容メモ", value=_ci.get("request_note", ""), height=100
+                    )
+                    _ci_coach = st.text_area(
+                        "💬 コーチコメント (PDFに掲載)",
+                        value=_ci.get("coach_comment", ""),
+                        height=120,
+                        help="英数字・記号はPDFにそのまま恣示されます。日本語は現在 '?' に置換されます（フォント対応中）。",
+                    )
+                    _ci_save = st.form_submit_button("💾 顧客情報を保存", type="primary")
+                    if _ci_save:
+                        update_customer_info(
+                            selected_id,
+                            customer_name=_ci_name,
+                            instagram_id=_ci_ig,
+                            event=_ci_event,
+                            dominant_hand=_ci_hand,
+                            camera_angle=_ci_angle,
+                            paid_status=_ci_paid,
+                            delivery_status=_ci_dstatus,
+                            request_note=_ci_note,
+                            coach_comment=_ci_coach,
+                        )
+                        st.success("保存しました。")
+                        st.rerun()
+                st.caption(
+                    f"height_m: {_ci.get('height_m', '—')}  ·  "
+                    f"created_at: {_ci.get('created_at', '—')}  ·  "
+                    f"updated_at: {_ci.get('updated_at', '—')}"
+                )
 
             # ══════════════════════════════════════════════════════════════════
             # B. Free Preview Outputs
@@ -529,64 +828,173 @@ with tab_history:
             # F. 納品用ZIPパッケージ
             # ══════════════════════════════════════════════════════════════════
             with st.expander("📦 F. 納品用ZIPパッケージ", expanded=False):
-                st.caption("3種類の納品用ZIPを生成・ダウンロードできます。")
                 _deliv_dir = _job_dir / "deliverables"
-                _zip_specs = [
-                    (
-                        "free_preview.zip",
-                        "🆓 Free Preview",
-                        "解析動画 + 代表フレーム先頭3枚",
-                    ),
-                    (
-                        "data_sheet_package.zip",
-                        "📊 Data Sheet Package",
-                        "pose_landmarks.csv + グラフ画像 + 全代表フレーム",
-                    ),
-                    (
-                        "full_report_package.zip",
-                        "📦 Full Report Package",
-                        "report.pdf + CSV + グラフ + フレーム + 全解析動画",
-                    ),
-                ]
 
-                _gz_col, _ = st.columns([2, 3])
-                with _gz_col:
-                    if st.button("🗜️ ZIPを全て生成", key=f"gen_zip_{job['job_id']}"):
+                # ── ZIP全生成ボタン ──────────────────────────────────────────
+                _fz_left, _fz_right = st.columns([2, 5])
+                with _fz_left:
+                    if st.button("🗜️ ZIPを全て生成・更新", key=f"gen_zip_{job['job_id']}",
+                                 use_container_width=True):
                         with st.spinner("ZIP を生成中..."):
                             try:
                                 from src.deliverable_packager import (
                                     create_deliverable_packages_for_job,
                                 )
                                 _zips = create_deliverable_packages_for_job(_job_dir)
-                                st.success(f"生成完了: {len(_zips)} 件")
+                                st.success(f"✅ 生成完了: {len(_zips)} 件")
                                 st.rerun()
                             except Exception as _ze:
                                 st.error(f"ZIP 生成エラー: {_ze}")
+                with _fz_right:
+                    st.caption(
+                        "解析完了後に上記ボタンを押すと3種類のZIPが一括生成されます。"
+                        "生成済みのZIPは各カードのダウンロードボタンから取得できます。"
+                    )
 
                 st.markdown("---")
-                for _zname, _zlabel, _zdesc in _zip_specs:
-                    _zp = _deliv_dir / _zname
-                    _zc1, _zc2 = st.columns([3, 2])
-                    with _zc1:
-                        st.markdown(f"**{_zlabel}**  —  `{_zname}`")
-                        st.caption(_zdesc)
-                        if _zp.exists():
-                            _zk = _zp.stat().st_size // 1024
-                            _zm = datetime.fromtimestamp(
-                                _zp.stat().st_mtime
-                            ).strftime("%Y-%m-%d %H:%M")
-                            st.caption(f"{_zk:,} KB  /  生成: {_zm}")
-                        else:
-                            st.caption("Not generated yet.")
-                    with _zc2:
+
+                # ── カード定義 ──────────────────────────────────────────────
+                _zip_cards = [
+                    {
+                        "filename":  "free_preview.zip",
+                        "icon":      "🆓",
+                        "tier":      "無料プレビュー",
+                        "subtitle":  "Free Preview Package",
+                        "purpose":   "SNSでシェアする前の確認・無料体験として納品",
+                        "contents":  [
+                            "📹 解析動画（骨格・トレイル等）",
+                            "🖼️ 代表フレーム画像（先頭3枚）",
+                        ],
+                        "badge_color": "#2E7D32",   # 緑
+                        "badge_text":  "FREE",
+                    },
+                    {
+                        "filename":  "data_sheet_package.zip",
+                        "icon":      "📊",
+                        "tier":      "有料データシート",
+                        "subtitle":  "Paid Data Sheet Package",
+                        "purpose":   "数値データ・グラフを活用したい競技者・コーチ向け",
+                        "contents":  [
+                            "📄 pose_landmarks.csv（全フレーム座標）",
+                            "📈 解析グラフ画像（3種）",
+                            "🖼️ 代表フレーム画像（全枚）",
+                        ],
+                        "badge_color": "#1565C0",   # 青
+                        "badge_text":  "PAID",
+                    },
+                    {
+                        "filename":  "full_report_package.zip",
+                        "icon":      "📦",
+                        "tier":      "有料フルレポート",
+                        "subtitle":  "Paid Full Report Package",
+                        "purpose":   "PDF・動画・データを完全セットで納品したい場合",
+                        "contents":  [
+                            "📝 report.pdf（A4レポート）",
+                            "📄 pose_landmarks.csv",
+                            "📈 解析グラフ画像",
+                            "🖼️ 代表フレーム画像（全枚）",
+                            "📹 全解析動画",
+                        ],
+                        "badge_color": "#E65100",   # オレンジ
+                        "badge_text":  "PAID",
+                    },
+                ]
+
+                _card_cols = st.columns(3, gap="medium")
+                for _card, _col in zip(_zip_cards, _card_cols):
+                    _zp = _deliv_dir / _card["filename"]
+                    with _col:
+                        # ヘッダー行
+                        st.markdown(
+                            f"<span style='background:{_card['badge_color']};"
+                            f"color:white;padding:2px 8px;border-radius:4px;"
+                            f"font-size:11px;font-weight:bold'>{_card['badge_text']}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"#### {_card['icon']} {_card['tier']}"
+                        )
+                        st.caption(_card["subtitle"])
+                        st.divider()
+
+                        # 推奨用途
+                        st.markdown("**📌 推奨用途**")
+                        st.caption(_card["purpose"])
+
+                        # 含まれる成果物
+                        st.markdown("**📂 含まれる成果物**")
+                        for _item in _card["contents"]:
+                            st.caption(_item)
+
+                        st.divider()
+
+                        # ステータス & ダウンロード
                         if _zp.exists():
                             try:
+                                _zk  = _zp.stat().st_size // 1024
+                                _zm  = datetime.fromtimestamp(
+                                    _zp.stat().st_mtime
+                                ).strftime("%Y-%m-%d %H:%M")
+                                st.success("✅ 生成済み")
+                                st.caption(f"`{_card['filename']}`")
+                                st.caption(f"{_zk:,} KB  ·  生成: {_zm}")
                                 st.download_button(
-                                    label=f"⬇ {_zname}",
+                                    label=f"⬇ ダウンロード",
                                     data=_zp.read_bytes(),
-                                    file_name=_zname,
+                                    file_name=_card["filename"],
                                     mime="application/zip",
-                                    key=f"dl_zip_{_zname}_{job['job_id']}",
+                                    key=f"dl_zip_{_card['filename']}_{job['job_id']}",
+                                    use_container_width=True,
                                 )
                             except OSError:
-                                st.warning("ZIPファイルを読み込めませんでした。")
+                                st.warning("⚠️ ファイル読み込みエラー")
+                        else:
+                            st.info("⏳ 未生成")
+                            st.caption(f"`{_card['filename']}`")
+                            st.caption("「ZIPを全て生成」で作成できます。")
+
+            # ══════════════════════════════════════════════════════════════
+            # H. 納品メッセージ
+            # ══════════════════════════════════════════════════════════════
+            with st.expander("✉️ H. 納品メッセージ", expanded=False):
+                st.caption(
+                    "Instagram DM・公式LINE・メールにそのままコピペできる納品文を自動生成します。"
+                )
+                _hci = get_customer_info(selected_id)
+
+                _msg_specs = [
+                    (
+                        "free_preview",
+                        "🇦️ 無料プレビュー納品文",
+                        "free_preview_msg",
+                    ),
+                    (
+                        "data_sheet",
+                        "📊 有料データシート案内文",
+                        "data_sheet_msg",
+                    ),
+                    (
+                        "full_report",
+                        "📦 有料フルレポート納品文",
+                        "full_report_msg",
+                    ),
+                ]
+
+                for _pkg_type, _pkg_label, _ta_key in _msg_specs:
+                    st.markdown(f"**{_pkg_label}**")
+                    try:
+                        _msg_text = build_delivery_message(
+                            job=job,
+                            customer_info=_hci,
+                            package_type=_pkg_type,
+                        )
+                    except Exception as _me:
+                        _msg_text = f"(メッセージ生成エラー: {_me})"
+                    st.text_area(
+                        label=_pkg_label,
+                        value=_msg_text,
+                        height=160,
+                        key=f"{_ta_key}_{selected_id}",
+                        label_visibility="collapsed",
+                    )
+                    st.divider()
