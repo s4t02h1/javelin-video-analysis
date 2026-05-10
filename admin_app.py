@@ -235,6 +235,186 @@ except ImportError:
     def compute_dataset_stats(*_a, **_kw):  # type: ignore[misc]
         return {}
 
+# ── Phase 12: 高度解析指標 ────────────────────────────────────────────────────
+try:
+    from src.analysis.advanced_metrics import (
+        compute_advanced_metrics_for_job as _am_compute,
+        load_advanced_metrics as _am_load,
+        METRICS_VERSION as _AM_VERSION,
+    )
+    from src.analysis.advanced_metrics_report import (
+        generate_advanced_metrics_report_for_job as _am_report,
+    )
+    from src.analysis.advanced_metrics_exporter import (
+        export_advanced_metrics_for_job as _am_export,
+    )
+    _PHASE12_AVAILABLE = True
+except ImportError:
+    _PHASE12_AVAILABLE = False
+
+    def _am_load(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def _am_compute(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def _am_report(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def _am_export(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    _AM_VERSION = "—"
+
+# ── Phase 13: ユーザー向けダッシュボード ──────────────────────────────────────
+try:
+    from src.dashboard_generator import (
+        generate_user_dashboard_for_job as _dash_generate,
+        generate_dashboard_delivery_message as _dash_message,
+    )
+    from src.comparison_dashboard_generator import (
+        generate_comparison_dashboard_for_jobs as _cdash_generate,
+    )
+    _PHASE13_AVAILABLE = True
+except ImportError:
+    _PHASE13_AVAILABLE = False
+
+    def _dash_generate(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def _dash_message(*_a, **_kw):  # type: ignore[misc]
+        return ""
+
+    def _cdash_generate(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+# ── Phase 14: ダッシュボードマニフェスト（Web版） ────────────────────────────
+try:
+    from src.dashboard_manifest import (
+        get_or_create_dashboard_token as _manifest_get_token,
+        save_dashboard_manifest as _manifest_save,
+        load_dashboard_manifest as _manifest_load,
+    )
+    _PHASE14_AVAILABLE = True
+except ImportError:
+    _PHASE14_AVAILABLE = False
+
+    def _manifest_get_token(*_a, **_kw):  # type: ignore[misc]
+        return ""
+
+    def _manifest_save(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+    def _manifest_load(*_a, **_kw):  # type: ignore[misc]
+        return None
+
+# ── Phase 15: β版リリース管理 ─────────────────────────────────────────────────
+try:
+    from src.beta_tester import (
+        TESTER_STATUSES,
+        TESTER_STATUS_LABELS,
+        CONSENT_STATUSES,
+        CONSENT_STATUS_LABELS,
+        FEEDBACK_STATUSES as BETA_FEEDBACK_STATUSES,
+        FEEDBACK_STATUS_LABELS as BETA_FEEDBACK_STATUS_LABELS,
+        BETA_PLANS,
+        BETA_PLAN_LABELS,
+        create_beta_tester,
+        load_beta_tester,
+        update_beta_tester,
+        list_beta_testers,
+        archive_tester,
+        tester_from_intake,
+    )
+    _PHASE15_TESTER_AVAILABLE = True
+except ImportError as _bt_ie:
+    _PHASE15_TESTER_AVAILABLE = False
+    TESTER_STATUSES = []
+    TESTER_STATUS_LABELS = {}
+    CONSENT_STATUSES = []
+    CONSENT_STATUS_LABELS = {}
+    BETA_FEEDBACK_STATUSES = []
+    BETA_FEEDBACK_STATUS_LABELS = {}
+    BETA_PLANS = []
+    BETA_PLAN_LABELS = {}
+
+    def create_beta_tester(*_a, **_kw):  # type: ignore[misc]
+        return {}
+
+    def list_beta_testers(*_a, **_kw):  # type: ignore[misc]
+        return []
+
+    def tester_from_intake(*_a, **_kw):  # type: ignore[misc]
+        return {}
+
+try:
+    from src.feedback_manager import (
+        FEEDBACK_TYPES,
+        FEEDBACK_TYPE_LABELS,
+        SEVERITY_LEVELS,
+        SEVERITY_LABELS,
+        FEEDBACK_STATUSES as FB_STATUSES,
+        FEEDBACK_STATUS_LABELS as FB_STATUS_LABELS,
+        create_feedback,
+        load_feedback,
+        update_feedback,
+        list_feedback,
+    )
+    _PHASE15_FEEDBACK_AVAILABLE = True
+except ImportError as _fb_ie:
+    _PHASE15_FEEDBACK_AVAILABLE = False
+    FEEDBACK_TYPES = []
+    FEEDBACK_TYPE_LABELS = {}
+    SEVERITY_LEVELS = []
+    SEVERITY_LABELS = {}
+    FB_STATUSES = []
+    FB_STATUS_LABELS = {}
+
+    def list_feedback(*_a, **_kw):  # type: ignore[misc]
+        return []
+
+try:
+    from src.improvement_log import (
+        IMPROVEMENT_CATEGORIES,
+        IMPROVEMENT_CATEGORY_LABELS,
+        IMPROVEMENT_STATUSES,
+        IMPROVEMENT_STATUS_LABELS,
+        PRIORITY_LEVELS,
+        PRIORITY_LABELS,
+        create_improvement,
+        load_improvement,
+        update_improvement,
+        list_improvements,
+        create_improvement_from_feedback,
+    )
+    _PHASE15_IMPROVEMENT_AVAILABLE = True
+except ImportError as _imp_ie:
+    _PHASE15_IMPROVEMENT_AVAILABLE = False
+    IMPROVEMENT_CATEGORIES = []
+    IMPROVEMENT_CATEGORY_LABELS = {}
+    IMPROVEMENT_STATUSES = []
+    IMPROVEMENT_STATUS_LABELS = {}
+    PRIORITY_LEVELS = []
+    PRIORITY_LABELS = {}
+
+    def list_improvements(*_a, **_kw):  # type: ignore[misc]
+        return []
+
+    def create_improvement_from_feedback(*_a, **_kw):  # type: ignore[misc]
+        return {}
+
+try:
+    from src.message_templates import generate_beta_delivery_message as _beta_delivery_msg
+    _PHASE15_MSG_AVAILABLE = True
+except ImportError:
+    _PHASE15_MSG_AVAILABLE = False
+
+    def _beta_delivery_msg(*_a, **_kw) -> str:  # type: ignore[misc]
+        return ""
+
+
+_FRONTEND_BASE_URL: str = os.getenv("JVA_FRONTEND_BASE_URL", "").rstrip("/")
+
 _RUN_PY = _REPO_ROOT / "run.py"
 
 # ── 定数 ──────────────────────────────────────────────────────────────────────
@@ -819,8 +999,8 @@ def render_operation_checklist_tab() -> None:
         st.info("もう少しです。残りの項目を確認してください。")
 
 
-tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue, tab_orders, tab_annotations = st.tabs(
-    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理", "💰 注文管理", "📋 アノテーション"]
+tab_new, tab_history, tab_compare, tab_checklist, tab_import, tab_intakes, tab_queue, tab_orders, tab_annotations, tab_beta, tab_feedback_mgmt, tab_kpi = st.tabs(
+    ["▶ 新規ジョブ", "📋 ジョブ履歴", "⚖️ ジョブ比較", "✅ 運用チェックリスト", "📥 CSVインポート", "📨 受付一覧", "⚙️ キュー管理", "💰 注文管理", "📋 アノテーション", "🧪 βテスター", "💬 フィードバック", "📈 β版KPI"]
 )
 
 
@@ -3053,6 +3233,424 @@ with tab_history:
                                 use_container_width=True, hide_index=True,
                             )
 
+                                _p11_pd.DataFrame(_p11_pl_rows),
+                                use_container_width=True, hide_index=True,
+                            )
+
+            # ── P12. 高度解析指標（Phase 12）─────────────────────────────────────
+            with st.expander("📊 P12. 高度解析指標", expanded=False):
+                if not _PHASE12_AVAILABLE:
+                    st.warning(
+                        "Phase 12 モジュールが利用できません。"
+                        "`src/analysis/advanced_metrics.py` を確認してください。"
+                    )
+                else:
+                    _p12_job_dir = get_job_dir(selected_id)
+                    st.caption(
+                        "⚠️ 以下の指標はすべて **参考値** です。動画上の座標から算出しており、"
+                        "実際の距離・速度とは一致しない場合があります。  \n"
+                        "医療診断・競技指導の代替ではありません。"
+                    )
+
+                    # ── 操作ボタン ──────────────────────────────────────────────
+                    _p12_col1, _p12_col2, _p12_col3 = st.columns(3)
+                    with _p12_col1:
+                        if st.button("📊 指標を計算", key=f"p12_compute_{selected_id}"):
+                            with st.spinner("高度解析指標を計算中..."):
+                                try:
+                                    _am_compute(_p12_job_dir)
+                                    st.success("✅ 計算完了")
+                                    st.rerun()
+                                except Exception as _p12e:
+                                    st.error(f"計算エラー: {_p12e}")
+                    with _p12_col2:
+                        if st.button("📄 PDF生成", key=f"p12_pdf_{selected_id}"):
+                            with st.spinner("PDF生成中..."):
+                                try:
+                                    _p12_pdf = _am_report(_p12_job_dir)
+                                    if _p12_pdf:
+                                        st.success(f"✅ PDF生成完了: `{_p12_pdf.name}`")
+                                    else:
+                                        st.warning("PDFを生成できませんでした。先に「指標を計算」を実行してください。")
+                                except Exception as _p12pe:
+                                    st.error(f"PDF生成エラー: {_p12pe}")
+                    with _p12_col3:
+                        if st.button("📥 CSV出力", key=f"p12_export_{selected_id}"):
+                            with st.spinner("エクスポート中..."):
+                                try:
+                                    _p12_exp = _am_export(_p12_job_dir)
+                                    if _p12_exp:
+                                        st.success(f"✅ エクスポート完了: `{_p12_exp.name}`")
+                                    else:
+                                        st.warning("エクスポートに失敗しました。")
+                                except Exception as _p12ee:
+                                    st.error(f"エクスポートエラー: {_p12ee}")
+
+                    # ── 指標表示 ────────────────────────────────────────────────
+                    _p12_metrics = _am_load(_p12_job_dir)
+                    if _p12_metrics is None:
+                        st.info("高度解析指標がまだ計算されていません。「📊 指標を計算」を押してください。")
+                    elif _p12_metrics.get("status") == "failed":
+                        st.error(f"指標計算に失敗しています: {_p12_metrics.get('error', '詳細不明')}")
+                    elif _p12_metrics.get("status") == "disabled":
+                        st.info("高度解析指標は現在無効に設定されています（configs/advanced_metrics.yaml）。")
+                    else:
+                        # 品質情報
+                        _p12_q = _p12_metrics.get("quality", {})
+                        _p12_rel = _p12_q.get("metrics_reliability", "unknown")
+                        _p12_rel_icon = {"high": "🟢 高", "medium": "🟡 中",
+                                         "low": "🔴 低", "unknown": "⚪ 不明"}.get(_p12_rel, _p12_rel)
+                        st.markdown(
+                            f"**動画品質:** {_p12_q.get('overall_quality', '—')}　"
+                            f"**信頼度:** {_p12_rel_icon}　"
+                            f"**検出率:** {_p12_q.get('pose_detection_rate', 0):.0%}　"
+                            f"**FPS:** {_p12_metrics.get('fps', '—')}　"
+                            f"**利き腕:** {'右' if _p12_metrics.get('dominant_arm') == 'right' else '左'}　"
+                            f"**バージョン:** v{_p12_metrics.get('metrics_version', '—')}"
+                        )
+
+                        # 警告
+                        _p12_warns = _p12_q.get("warnings", [])
+                        for _p12w in _p12_warns:
+                            st.warning(f"⚠️ {_p12w}")
+
+                        # リリース指標
+                        _p12_rm = _p12_metrics.get("release_metrics", {})
+                        if _p12_rm.get("available"):
+                            st.markdown("**📌 リリース関連指標（参考）**")
+                            _p12_rm_data = {
+                                "手首高さ（正規化）": _p12_rm.get("release_wrist_height_normalized", {}).get("value"),
+                                "手首速度（正規化）": _p12_rm.get("release_wrist_velocity_normalized", {}).get("value"),
+                                "腕伸展率": _p12_rm.get("release_arm_extension_ratio", {}).get("value"),
+                                "体幹前傾（2D推定）°": _p12_rm.get("release_trunk_angle_estimate", {}).get("value"),
+                                "肩ライン傾き°": _p12_rm.get("release_shoulder_line_tilt", {}).get("value"),
+                            }
+                            import pandas as _p12_pd
+                            _p12_df = _p12_pd.DataFrame([
+                                {"指標": k, "値（参考）": ("—" if v is None else round(v, 3))}
+                                for k, v in _p12_rm_data.items()
+                            ])
+                            st.dataframe(_p12_df, use_container_width=True, hide_index=True)
+
+                        # ブロック指標
+                        _p12_bm = _p12_metrics.get("block_metrics", {})
+                        if _p12_bm.get("available"):
+                            st.markdown("**📌 ブロック関連指標（参考）**")
+                            _p12_bm_data = {
+                                "ブロック〜リリース時間(s)": _p12_bm.get("block_to_release_time_sec", {}).get("value"),
+                                "腰減速比": _p12_bm.get("hip_deceleration_ratio", {}).get("value"),
+                                "肩回旋変化（2D推定）°": _p12_bm.get("shoulder_rotation_change_around_block", {}).get("value"),
+                                "腰回旋変化（2D推定）°": _p12_bm.get("hip_rotation_change_around_block", {}).get("value"),
+                            }
+                            _p12_bdf = _p12_pd.DataFrame([
+                                {"指標": k, "値（参考）": ("—" if v is None else round(v, 3))}
+                                for k, v in _p12_bm_data.items()
+                            ])
+                            st.dataframe(_p12_bdf, use_container_width=True, hide_index=True)
+
+                        # 体幹指標
+                        _p12_tm = _p12_metrics.get("trunk_metrics", {})
+                        if _p12_tm.get("available"):
+                            st.markdown(
+                                "**📌 体幹・肩腰分離指標（2D推定・参考）**  \n"
+                                "※ 3Dの正確な回旋角ではありません"
+                            )
+                            _p12_tm_data = {
+                                "肩腰分離角_ブロック時（推定）°":   _p12_tm.get("shoulder_hip_separation_angle_estimate_at_block", {}).get("value"),
+                                "肩腰分離角_リリース時（推定）°": _p12_tm.get("shoulder_hip_separation_angle_estimate_at_release", {}).get("value"),
+                                "体幹前傾_ブロック時（推定）°":     _p12_tm.get("trunk_tilt_estimate_at_block", {}).get("value"),
+                                "体幹前傾_リリース時（推定）°":   _p12_tm.get("trunk_tilt_estimate_at_release", {}).get("value"),
+                            }
+                            _p12_tdf = _p12_pd.DataFrame([
+                                {"指標": k, "値（参考）": ("—" if v is None else round(v, 2))}
+                                for k, v in _p12_tm_data.items()
+                            ])
+                            st.dataframe(_p12_tdf, use_container_width=True, hide_index=True)
+
+                        # 投げ腕指標
+                        _p12_am = _p12_metrics.get("arm_metrics", {})
+                        if _p12_am.get("available"):
+                            st.markdown("**📌 投げ腕指標（参考）**")
+                            _p12_am_data = {
+                                "手首最大速度（相対）": _p12_am.get("throwing_wrist_peak_velocity", {}).get("value"),
+                                "肘角度リリース時（2D推定）°": _p12_am.get("elbow_angle_estimate_at_release", {}).get("value"),
+                                "腕整列スコア（0-1）": _p12_am.get("shoulder_elbow_wrist_alignment_score", {}).get("value"),
+                                "槍引き距離推定（相対）": _p12_am.get("arm_pullback_distance_estimate", {}).get("value"),
+                            }
+                            _p12_adf = _p12_pd.DataFrame([
+                                {"指標": k, "値（参考）": ("—" if v is None else round(v, 3))}
+                                for k, v in _p12_am_data.items()
+                            ])
+                            st.dataframe(_p12_adf, use_container_width=True, hide_index=True)
+
+                        # 生成日時
+                        st.caption(f"最終計算日時: {_p12_metrics.get('generated_at', '—')}")
+
+            # ── P13. ユーザー向けダッシュボード（Phase 13）────────────────────────
+            with st.expander("🌐 P13. ユーザー向けダッシュボード", expanded=False):
+                if not _PHASE13_AVAILABLE:
+                    st.warning(
+                        "Phase 13 モジュールが利用できません。"
+                        "`src/dashboard_generator.py` を確認してください。"
+                    )
+                else:
+                    _p13_job_dir = get_job_dir(selected_id)
+                    _p13_job_data = load_job(selected_id) if selected_id else {}
+
+                    st.caption(
+                        "ユーザー向けのスマホ対応HTMLダッシュボードを生成します。"
+                        "生成したHTMLはS3にアップロードしてURLを発行することができます。"
+                    )
+
+                    # ── ダッシュボード生成・操作 ──────────────────────────────────
+                    _p13_col1, _p13_col2 = st.columns(2)
+                    _p13_dashboard_path = _p13_job_dir / "report" / "user_dashboard.html"
+
+                    with _p13_col1:
+                        if st.button("🌐 ダッシュボードを生成", key=f"p13_gen_{selected_id}"):
+                            with st.spinner("ダッシュボードHTML生成中..."):
+                                try:
+                                    _p13_out = _dash_generate(_p13_job_dir)
+                                    if _p13_out:
+                                        st.success(f"✅ 生成完了: `{_p13_out.name}`")
+                                    else:
+                                        st.warning("ダッシュボードを生成できませんでした。configs/dashboard.yaml を確認してください。")
+                                    st.rerun()
+                                except Exception as _p13e:
+                                    st.error(f"生成エラー: {_p13e}")
+
+                    with _p13_col2:
+                        if _p13_dashboard_path.exists():
+                            if st.button("🔄 再生成", key=f"p13_regen_{selected_id}"):
+                                with st.spinner("再生成中..."):
+                                    try:
+                                        _p13_out = _dash_generate(_p13_job_dir)
+                                        if _p13_out:
+                                            st.success("✅ 再生成完了")
+                                        st.rerun()
+                                    except Exception as _p13e:
+                                        st.error(f"再生成エラー: {_p13e}")
+
+                    # ── 生成状況 ────────────────────────────────────────────────
+                    if _p13_dashboard_path.exists():
+                        _p13_size = _p13_dashboard_path.stat().st_size
+                        st.success(
+                            f"✅ `user_dashboard.html` が生成されています  "
+                            f"（{_p13_size // 1024} KB）"
+                        )
+                        # ローカルHTMLを開くリンク
+                        _p13_rel_path = _p13_dashboard_path.relative_to(_p13_job_dir.parent.parent)
+                        st.info(f"📂 ローカルパス: `{_p13_dashboard_path}`")
+                    else:
+                        st.warning("⚠️ `user_dashboard.html` がまだ生成されていません。「🌐 ダッシュボードを生成」を押してください。")
+
+                    # ── S3アップロード ───────────────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("**☁️ S3へのアップロードとURL発行**")
+
+                    if not is_s3_configured():
+                        st.warning("S3が未設定です。`.env` に `JVA_BUCKET` を設定するとS3アップロードとURL発行ができます。")
+                    elif not _p13_dashboard_path.exists():
+                        st.info("ダッシュボードを先に生成してください。")
+                    else:
+                        if st.button("☁️ S3にアップロードしてURLを発行", key=f"p13_upload_{selected_id}"):
+                            with st.spinner("S3アップロード中..."):
+                                try:
+                                    from src.storage.s3_storage import (
+                                        build_s3_key_for_job, upload_file_to_s3,
+                                        generate_presigned_url, get_presigned_url_expires_at,
+                                    )
+                                    _p13_s3_key = build_s3_key_for_job(selected_id, "report/user_dashboard.html")
+                                    _p13_result = upload_file_to_s3(
+                                        _p13_dashboard_path, _p13_s3_key, content_type="text/html"
+                                    )
+                                    if _p13_result.get("ok"):
+                                        _p13_url = generate_presigned_url(_p13_s3_key)
+                                        _p13_exp = get_presigned_url_expires_at()
+                                        update_job(selected_id,
+                                                   user_dashboard_url=_p13_url,
+                                                   user_dashboard_s3_key=_p13_s3_key,
+                                                   dashboard_url_expires_at=_p13_exp,
+                                                   dashboard_upload_status="complete",
+                                                   dashboard_generated_at=datetime.now().isoformat(timespec="seconds"))
+                                        st.success("✅ アップロード完了！URLを発行しました。")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"アップロード失敗: {_p13_result.get('error', '詳細不明')}")
+                                except Exception as _p13ue:
+                                    st.error(f"アップロードエラー: {_p13ue}")
+
+                    # ── ダッシュボードURL表示 ────────────────────────────────────
+                    _p13_url_saved = _p13_job_data.get("user_dashboard_url")
+                    _p13_exp_saved = _p13_job_data.get("dashboard_url_expires_at", "")
+                    if _p13_url_saved:
+                        st.markdown("**ダッシュボードURL**")
+                        st.code(_p13_url_saved, language=None)
+                        if _p13_exp_saved:
+                            st.caption(f"有効期限: {_p13_exp_saved}")
+                        # 納品メッセージ
+                        with st.expander("📋 納品メッセージ（コピー用）"):
+                            _p13_msg = _dash_message(selected_id, _p13_url_saved, _p13_exp_saved)
+                            st.code(_p13_msg, language=None)
+
+                    # ── 成果物一覧 ───────────────────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("**📋 ダッシュボードに含まれる成果物**")
+                    _p13_artifacts = [
+                        ("report/user_dashboard.html", "ユーザー向けダッシュボード HTML"),
+                        ("report/advanced_metrics.json", "高度解析指標 JSON"),
+                        ("report/advanced_metrics_report.pdf", "高度解析指標 PDF"),
+                        ("report/frames/", "代表フレーム画像"),
+                        ("report/graphs/", "グラフ画像"),
+                        ("output/*.mp4", "解析動画"),
+                        ("deliverables/full_report_package.zip", "ZIP 納品物"),
+                    ]
+                    for _p13_rel, _p13_lbl in _p13_artifacts:
+                        _p13_fpath = _p13_job_dir / _p13_rel
+                        if "*" in _p13_rel:
+                            _p13_exists = any((_p13_job_dir / _p13_rel.split("*")[0]).glob("*" + _p13_rel.split("*")[-1]))
+                        else:
+                            _p13_exists = _p13_fpath.exists()
+                        icon = "✅" if _p13_exists else "⬜"
+                        st.caption(f"{icon} {_p13_lbl}")
+
+                    # ── 比較ダッシュボード ────────────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("**⚖️ 比較ダッシュボード生成**")
+                    st.caption("比較対象ジョブのIDを入力すると、比較ダッシュボードを生成できます。")
+                    _p13_cmp_id = st.text_input("比較対象ジョブID（動画B）", key=f"p13_cmp_id_{selected_id}", placeholder="20260508_081953_329a")
+                    _p13_la = st.text_input("動画Aのラベル", value="動画A", key=f"p13_la_{selected_id}")
+                    _p13_lb = st.text_input("動画Bのラベル", value="動画B", key=f"p13_lb_{selected_id}")
+                    if st.button("⚖️ 比較ダッシュボードを生成", key=f"p13_cmp_{selected_id}"):
+                        if not _p13_cmp_id.strip():
+                            st.warning("比較対象ジョブIDを入力してください。")
+                        else:
+                            _p13_cmp_dir = get_job_dir(_p13_cmp_id.strip())
+                            if not _p13_cmp_dir.exists():
+                                st.error(f"ジョブが見つかりません: {_p13_cmp_id.strip()}")
+                            else:
+                                with st.spinner("比較ダッシュボード生成中..."):
+                                    try:
+                                        _p13_cmp_out = _cdash_generate(
+                                            _p13_job_dir, _p13_cmp_dir,
+                                            job_a_label=_p13_la, job_b_label=_p13_lb,
+                                        )
+                                        if _p13_cmp_out:
+                                            st.success(f"✅ 比較ダッシュボード生成完了: `{_p13_cmp_out.name}`")
+                                        else:
+                                            st.warning("比較ダッシュボードを生成できませんでした。")
+                                    except Exception as _p13ce:
+                                        st.error(f"生成エラー: {_p13ce}")
+
+            # ── P14. Web版ダッシュボード（Phase 14）──────────────────────────────
+            with st.expander("🔗 P14. Web版ダッシュボード URL", expanded=False):
+                if not _PHASE14_AVAILABLE:
+                    st.warning(
+                        "Phase 14 モジュールが利用できません。"
+                        "`src/dashboard_manifest.py` を確認してください。"
+                    )
+                else:
+                    _p14_job_dir = get_job_dir(selected_id)
+                    _p14_job_data = load_job(selected_id) if selected_id else {}
+
+                    st.caption(
+                        "Webフロントエンドで閲覧できるダッシュボードの URL を管理します。"
+                        "フロントエンド URL パターン: `{VITE_API_BASE_URL}/dashboard/{token}`"
+                    )
+
+                    # トークン取得 / 生成
+                    _p14_token = _p14_job_data.get("dashboard_token", "")
+                    _p14_col1, _p14_col2 = st.columns(2)
+
+                    with _p14_col1:
+                        if st.button("🔑 トークンを取得 / 生成", key=f"p14_token_{selected_id}"):
+                            with st.spinner("トークン処理中..."):
+                                try:
+                                    _p14_token = _manifest_get_token(selected_id)
+                                    st.success(f"✅ トークン: `{_p14_token}`")
+                                    st.rerun()
+                                except Exception as _p14e:
+                                    st.error(f"トークン取得エラー: {_p14e}")
+
+                    with _p14_col2:
+                        if st.button("📄 マニフェスト生成 / 再生成", key=f"p14_manifest_{selected_id}"):
+                            with st.spinner("マニフェスト生成中..."):
+                                try:
+                                    _p14_out = _manifest_save(_p14_job_dir)
+                                    if _p14_out:
+                                        st.success(f"✅ `{_p14_out.name}` を生成しました")
+                                    else:
+                                        st.warning("マニフェストを生成できませんでした。")
+                                    st.rerun()
+                                except Exception as _p14e:
+                                    st.error(f"マニフェスト生成エラー: {_p14e}")
+
+                    # トークン表示
+                    if _p14_token:
+                        st.text_input(
+                            "ダッシュボードトークン",
+                            value=_p14_token,
+                            key=f"p14_token_display_{selected_id}",
+                            disabled=True,
+                        )
+
+                        # Web版 URL
+                        if _FRONTEND_BASE_URL:
+                            _p14_web_url = f"{_FRONTEND_BASE_URL}/dashboard/{_p14_token}"
+                            st.markdown("**Web版 URL（フロントエンド）**")
+                            st.code(_p14_web_url, language=None)
+                            with st.expander("📋 Web版納品メッセージ（コピー用）"):
+                                _p14_exp = _p14_job_data.get("dashboard_url_expires_at", "")
+                                _p14_exp_date = _p14_exp[:10] if _p14_exp else "—"
+                                _p14_web_msg = (
+                                    f"やり投げ動画解析の結果をお届けします（参考資料）。\n\n"
+                                    f"【Web版ダッシュボード（スマホ推奨）】\n"
+                                    f"{_p14_web_url}\n\n"
+                                    f"公開期限: {_p14_exp_date}\n\n"
+                                    f"※ 本解析結果はあくまで参考値です。医療診断・専門的競技指導の代替ではありません。"
+                                )
+                                st.code(_p14_web_msg, language=None)
+                        else:
+                            st.info(
+                                "フロントエンド URL が未設定です。"
+                                "`.env` に `JVA_FRONTEND_BASE_URL` を設定すると Web版 URL が表示されます。\n\n"
+                                "例: `JVA_FRONTEND_BASE_URL=https://your-frontend.example.com`"
+                            )
+
+                        # 静的 HTML 版 URL（Phase 13）
+                        _p14_static_url = _p14_job_data.get("user_dashboard_url")
+                        if _p14_static_url:
+                            st.markdown("**静的 HTML 版 URL（Phase 13）**")
+                            st.code(_p14_static_url, language=None)
+
+                    else:
+                        st.info("「🔑 トークンを取得 / 生成」を押してトークンを発行してください。")
+
+                    # マニフェスト確認
+                    st.markdown("---")
+                    _p14_manifest = _manifest_load(_p14_job_dir)
+                    if _p14_manifest:
+                        st.success(
+                            f"✅ `dashboard_manifest.json` が存在します  "
+                            f"（生成: {_p14_manifest.get('generated_at', '—')[:16]}）"
+                        )
+                        with st.expander("マニフェスト内容を確認", expanded=False):
+                            st.json({
+                                "dashboard_token": _p14_manifest.get("dashboard_token"),
+                                "job_id": _p14_manifest.get("job_id"),
+                                "display_name": _p14_manifest.get("display_name"),
+                                "plan_label": _p14_manifest.get("plan_label"),
+                                "generated_at": _p14_manifest.get("generated_at"),
+                                "token_expires_at": _p14_manifest.get("token_expires_at"),
+                                "sections": _p14_manifest.get("sections"),
+                                "video_count": len(_p14_manifest.get("videos", [])),
+                                "key_metrics_count": len(_p14_manifest.get("key_metrics", [])),
+                                "phase_images_count": len(_p14_manifest.get("phase_images", [])),
+                                "graphs_count": len(_p14_manifest.get("graphs", [])),
+                            })
+                    else:
+                        st.warning("⚠️ `dashboard_manifest.json` がまだ生成されていません。")
+
             # ── P. S3納品 / 納品URL発行 ─────────────────────────────────────────
             with st.expander("☁️ P. S3納品 / 納品URL発行", expanded=False):
                 _s3_modules_ok = _S3_MODULES_AVAILABLE
@@ -4970,3 +5568,314 @@ with tab_annotations:
                     except Exception as _exp_e:
                         st.error(f"エクスポートエラー: {_exp_e}")
 
+
+
+# ─── Tab 10: βテスター管理 (Phase 15) ─────────────────────────────────────────
+
+with tab_beta:
+    st.header("🧪 βテスター管理")
+
+    if not _PHASE15_TESTER_AVAILABLE:
+        st.error("`src/beta_tester.py` が読み込めません。")
+        st.markdown("βテスター管理機能は利用できません。")
+
+    _bt_tab_list, _bt_tab_create, _bt_tab_from_intake = st.tabs(
+        ["📋 テスター一覧", "➕ 新規作成", "🔗 受付から作成"]
+    )
+
+    with _bt_tab_list:
+        st.subheader("βテスター一覧")
+        _bt_status_filter = st.selectbox(
+            "ステータスフィルタ",
+            ["（全件）"] + TESTER_STATUSES,
+            key="bt_status_filter",
+            format_func=lambda x: TESTER_STATUS_LABELS.get(x, x),
+        )
+        _bt_filter = None if _bt_status_filter == "（全件）" else _bt_status_filter
+        _bt_testers = list_beta_testers(status_filter=_bt_filter)
+
+        if not _bt_testers:
+            st.info("βテスターが登録されていません。")
+        else:
+            st.caption(f"{len(_bt_testers)} 件")
+            for _bt in _bt_testers:
+                _bt_label = _bt.get("name_or_nickname") or _bt.get("beta_tester_id", "—")
+                _bt_status = TESTER_STATUS_LABELS.get(_bt.get("tester_status", ""), _bt.get("tester_status", ""))
+                _bt_consent = CONSENT_STATUS_LABELS.get(_bt.get("consent_status", ""), "")
+                _bt_fb = BETA_FEEDBACK_STATUS_LABELS.get(_bt.get("feedback_status", ""), "")
+                _bt_plan = BETA_PLAN_LABELS.get(_bt.get("assigned_plan", ""), _bt.get("assigned_plan", ""))
+                with st.expander(f"{_bt_label}  |  {_bt_status}  |  {_bt_plan}", expanded=False):
+                    st.caption(f"ID: {_bt.get('beta_tester_id', '—')}")
+                    _bt_c1, _bt_c2 = st.columns(2)
+                    with _bt_c1:
+                        st.write(f"同意: {_bt_consent}")
+                        st.write(f"フィードバック: {_bt_fb}")
+                        st.write(f"カテゴリ: {_bt.get('athlete_category', '—')}")
+                        st.write(f"利き腕: {_bt.get('dominant_arm', '—')}")
+                    with _bt_c2:
+                        st.write(f"自己ベスト: {_bt.get('personal_best', '—')}")
+                        st.write(f"関連 job: {', '.join(_bt.get('related_job_ids', [])) or '—'}")
+                        st.write(f"SNS掲載: {_bt.get('sns_permission_status', '—')}")
+                        st.write(f"教師データ利用同意: {'✅' if _bt.get('training_data_consent') else '—'}")
+
+                    # ステータス変更
+                    _bt_key = _bt.get("beta_tester_id", "")
+                    _new_status = st.selectbox(
+                        "ステータス変更",
+                        TESTER_STATUSES,
+                        index=TESTER_STATUSES.index(_bt.get("tester_status", "candidate")) if _bt.get("tester_status") in TESTER_STATUSES else 0,
+                        key=f"bt_status_{_bt_key}",
+                        format_func=lambda x: TESTER_STATUS_LABELS.get(x, x),
+                    )
+                    _new_consent = st.selectbox(
+                        "同意ステータス変更",
+                        CONSENT_STATUSES,
+                        index=CONSENT_STATUSES.index(_bt.get("consent_status", "not_sent")) if _bt.get("consent_status") in CONSENT_STATUSES else 0,
+                        key=f"bt_consent_{_bt_key}",
+                        format_func=lambda x: CONSENT_STATUS_LABELS.get(x, x),
+                    )
+                    _new_fb_status = st.selectbox(
+                        "フィードバックステータス変更",
+                        BETA_FEEDBACK_STATUSES,
+                        index=BETA_FEEDBACK_STATUSES.index(_bt.get("feedback_status", "not_requested")) if _bt.get("feedback_status") in BETA_FEEDBACK_STATUSES else 0,
+                        key=f"bt_fb_{_bt_key}",
+                        format_func=lambda x: BETA_FEEDBACK_STATUS_LABELS.get(x, x),
+                    )
+                    _new_job_id = st.text_input("関連 job_id を追加（任意）", key=f"bt_add_job_{_bt_key}")
+                    _new_note = st.text_area("管理者メモ", value=_bt.get("admin_note", ""), key=f"bt_note_{_bt_key}", height=60)
+
+                    if st.button("💾 保存", key=f"bt_save_{_bt_key}"):
+                        try:
+                            _update_kwargs: dict = {
+                                "tester_status":   _new_status,
+                                "consent_status":  _new_consent,
+                                "feedback_status": _new_fb_status,
+                                "admin_note":      _new_note,
+                            }
+                            if _new_job_id.strip():
+                                _existing_jobs = list(_bt.get("related_job_ids", []))
+                                if _new_job_id.strip() not in _existing_jobs:
+                                    _existing_jobs.append(_new_job_id.strip())
+                                _update_kwargs["related_job_ids"] = _existing_jobs
+                            from src.beta_tester import update_beta_tester as _ubt
+                            _ubt(_bt_key, **_update_kwargs)
+                            st.success("保存しました。")
+                            st.rerun()
+                        except Exception as _bt_e:
+                            st.error(f"保存エラー: {_bt_e}")
+
+    with _bt_tab_create:
+        st.subheader("新規βテスター作成")
+        _bc1, _bc2 = st.columns(2)
+        with _bc1:
+            _bt_cr_name = st.text_input("名前/ニックネーム", key="bt_cr_name")
+            _bt_cr_contact = st.text_input("連絡先（LINE DM / メールなど）", key="bt_cr_contact")
+            _bt_cr_instagram = st.text_input("Instagram アカウント（任意）", key="bt_cr_instagram")
+            _bt_cr_category = st.selectbox("カテゴリ", ["", "高校生", "大学生", "マスターズ", "指導者", "一般"], key="bt_cr_category")
+        with _bc2:
+            _bt_cr_plan = st.selectbox("割り当てプラン", BETA_PLANS or ["beta_full_report"], key="bt_cr_plan", format_func=lambda x: BETA_PLAN_LABELS.get(x, x))
+            _bt_cr_arm = st.selectbox("利き腕", ["unknown", "right", "left"], key="bt_cr_arm")
+            _bt_cr_pb = st.text_input("自己ベスト（任意）", key="bt_cr_pb")
+            _bt_cr_note = st.text_area("管理者メモ（任意）", key="bt_cr_note", height=60)
+
+        if st.button("➕ βテスターを作成", key="bt_cr_submit", type="primary"):
+            if not _bt_cr_name.strip():
+                st.warning("名前/ニックネームを入力してください。")
+            else:
+                try:
+                    _new_bt = create_beta_tester(
+                        name_or_nickname = _bt_cr_name.strip(),
+                        contact          = _bt_cr_contact.strip(),
+                        instagram_account= _bt_cr_instagram.strip(),
+                        athlete_category = _bt_cr_category,
+                        assigned_plan    = _bt_cr_plan,
+                        dominant_arm     = _bt_cr_arm,
+                        personal_best    = _bt_cr_pb.strip(),
+                        admin_note       = _bt_cr_note.strip(),
+                    )
+                    st.success(f"✅ 作成しました: {_new_bt['beta_tester_id']}")
+                except Exception as _bt_ce:
+                    st.error(f"作成エラー: {_bt_ce}")
+
+    with _bt_tab_from_intake:
+        st.subheader("受付（intake）からβテスター作成")
+        st.caption("既存の受付 ID を入力すると、受付データを引き継いでβテスターを作成します。")
+        _bt_intake_id = st.text_input("intake_id", key="bt_from_intake_id", placeholder="intake_YYYYMMDD_...")
+        if st.button("🔗 intakeからβテスターを作成", key="bt_from_intake_submit", type="primary"):
+            if not _bt_intake_id.strip():
+                st.warning("intake_id を入力してください。")
+            else:
+                try:
+                    _new_bt = tester_from_intake(_bt_intake_id.strip())
+                    st.success(f"✅ 作成しました: {_new_bt['beta_tester_id']}")
+                    st.json({k: v for k, v in _new_bt.items() if k not in ("contact", "email", "line_user_id")})
+                except Exception as _bt_fi_e:
+                    st.error(f"作成エラー: {_bt_fi_e}")
+
+
+# ─── Tab 11: フィードバック管理 (Phase 15) ────────────────────────────────────
+
+with tab_feedback_mgmt:
+    st.header("💬 フィードバック管理")
+
+    if not _PHASE15_FEEDBACK_AVAILABLE:
+        st.error("`src/feedback_manager.py` が読み込めません。")
+        st.markdown("フィードバック管理機能は利用できません。")
+
+    _fb_col1, _fb_col2 = st.columns([2, 1])
+    with _fb_col1:
+        _fb_status_filter = st.selectbox(
+            "ステータスフィルタ",
+            ["（全件）"] + FB_STATUSES,
+            key="fb_status_filter",
+            format_func=lambda x: FB_STATUS_LABELS.get(x, x),
+        )
+    with _fb_col2:
+        _fb_sev_filter = st.selectbox(
+            "重要度フィルタ",
+            ["（全件）"] + SEVERITY_LEVELS,
+            key="fb_sev_filter",
+            format_func=lambda x: SEVERITY_LABELS.get(x, x),
+        )
+
+    _fb_status_f = None if _fb_status_filter == "（全件）" else _fb_status_filter
+    _fb_sev_f    = None if _fb_sev_filter == "（全件）" else _fb_sev_filter
+    _all_fb = list_feedback(status_filter=_fb_status_f, severity_filter=_fb_sev_f)
+
+    if not _all_fb:
+        st.info("フィードバックが登録されていません。")
+    else:
+        st.caption(f"{len(_all_fb)} 件")
+        for _fb in _all_fb:
+            _fb_id     = _fb.get("feedback_id", "—")
+            _fb_title  = _fb.get("title") or f"[{FEEDBACK_TYPE_LABELS.get(_fb.get('feedback_type', ''), _fb.get('feedback_type', ''))}]"
+            _fb_sev    = SEVERITY_LABELS.get(_fb.get("severity", ""), "")
+            _fb_st     = FB_STATUS_LABELS.get(_fb.get("status", ""), "")
+            with st.expander(f"{_fb_sev}  {_fb_title}  |  {_fb_st}  |  {_fb.get('created_at', '')[:10]}", expanded=False):
+                st.caption(f"ID: {_fb_id}")
+                _fb_c1, _fb_c2 = st.columns(2)
+                with _fb_c1:
+                    st.write(f"種別: {FEEDBACK_TYPE_LABELS.get(_fb.get('feedback_type', ''), '—')}")
+                    st.write(f"βテスター: {_fb.get('beta_tester_id', '—')}")
+                    st.write(f"端末: {_fb.get('device', '—')} / {_fb.get('os', '—')} / {_fb.get('browser', '—')}")
+                with _fb_c2:
+                    st.write(f"改善ログ: {_fb.get('improvement_id', '—')}")
+                    st.write(f"解決日: {_fb.get('resolved_at', '—')}")
+
+                if _fb.get("body"):
+                    st.text_area("本文", value=_fb.get("body", ""), key=f"fb_body_{_fb_id}", height=80, disabled=True)
+                if _fb.get("screenshot_note"):
+                    st.caption(f"スクリーンショット: {_fb.get('screenshot_note', '')}")
+
+                # ステータス変更
+                _new_fb_st = st.selectbox(
+                    "ステータス変更",
+                    FB_STATUSES,
+                    index=FB_STATUSES.index(_fb.get("status", "new")) if _fb.get("status") in FB_STATUSES else 0,
+                    key=f"fb_st_{_fb_id}",
+                    format_func=lambda x: FB_STATUS_LABELS.get(x, x),
+                )
+                _new_fb_note = st.text_input("管理者メモ", value=_fb.get("admin_note", ""), key=f"fb_note_{_fb_id}")
+
+                _fb_btn_col1, _fb_btn_col2 = st.columns(2)
+                with _fb_btn_col1:
+                    if st.button("💾 保存", key=f"fb_save_{_fb_id}"):
+                        try:
+                            from src.feedback_manager import update_feedback as _ufb
+                            _ufb(_fb_id, status=_new_fb_st, admin_note=_new_fb_note)
+                            st.success("保存しました。")
+                            st.rerun()
+                        except Exception as _fb_se:
+                            st.error(f"保存エラー: {_fb_se}")
+                with _fb_btn_col2:
+                    if _PHASE15_IMPROVEMENT_AVAILABLE and not _fb.get("improvement_id"):
+                        if st.button("📋 改善ログへ追加", key=f"fb_to_imp_{_fb_id}"):
+                            try:
+                                _imp = create_improvement_from_feedback(_fb_id)
+                                st.success(f"改善ログを作成しました: {_imp['improvement_id']}")
+                                st.rerun()
+                            except Exception as _imp_e:
+                                st.error(f"改善ログ作成エラー: {_imp_e}")
+
+
+# ─── Tab 12: β版KPI (Phase 15) ───────────────────────────────────────────────
+
+with tab_kpi:
+    st.header("📈 β版 KPI ダッシュボード")
+    st.caption("β版の運用状況を一覧で確認できます。")
+
+    # KPI データ収集
+    _kpi_testers   = list_beta_testers() if _PHASE15_TESTER_AVAILABLE else []
+    _kpi_feedbacks = list_feedback()     if _PHASE15_FEEDBACK_AVAILABLE else []
+    _kpi_imps      = list_improvements() if _PHASE15_IMPROVEMENT_AVAILABLE else []
+    _kpi_jobs      = list_jobs()         if True else []
+
+    # βテスター集計
+    _kpi_candidates  = sum(1 for t in _kpi_testers if t.get("tester_status") == "candidate")
+    _kpi_active      = sum(1 for t in _kpi_testers if t.get("tester_status") == "active")
+    _kpi_completed   = sum(1 for t in _kpi_testers if t.get("tester_status") == "completed")
+    _kpi_consented   = sum(1 for t in _kpi_testers if t.get("consent_status") == "agreed")
+    _kpi_fb_submitted = sum(1 for t in _kpi_testers if t.get("feedback_status") == "submitted")
+
+    # フィードバック集計
+    _kpi_fb_critical = sum(1 for f in _kpi_feedbacks if f.get("severity") == "critical")
+    _kpi_fb_high     = sum(1 for f in _kpi_feedbacks if f.get("severity") == "high")
+    _kpi_fb_unres    = sum(1 for f in _kpi_feedbacks if f.get("status") in ("new", "triaged", "in_progress"))
+
+    # 改善ログ集計
+    _kpi_imp_done    = sum(1 for i in _kpi_imps if i.get("status") == "done")
+    _kpi_imp_active  = sum(1 for i in _kpi_imps if i.get("status") == "in_progress")
+
+    # βジョブ集計（is_beta フラグがある場合）
+    _kpi_beta_jobs   = sum(1 for j in _kpi_jobs if j.get("is_beta"))
+    _kpi_delivered   = sum(1 for j in _kpi_jobs if j.get("is_beta") and j.get("status") == "delivered")
+
+    # フィードバック提出率
+    _kpi_fb_rate = (
+        int(_kpi_fb_submitted / _kpi_completed * 100) if _kpi_completed > 0 else 0
+    )
+
+    # KPI 表示
+    st.subheader("βテスター")
+    _kpi_cols1 = st.columns(5)
+    _kpi_cols1[0].metric("総テスター数", len(_kpi_testers))
+    _kpi_cols1[1].metric("候補者", _kpi_candidates)
+    _kpi_cols1[2].metric("解析中", _kpi_active)
+    _kpi_cols1[3].metric("完了", _kpi_completed)
+    _kpi_cols1[4].metric("同意済み", _kpi_consented)
+
+    st.subheader("β版解析")
+    _kpi_cols2 = st.columns(4)
+    _kpi_cols2[0].metric("βジョブ数", _kpi_beta_jobs)
+    _kpi_cols2[1].metric("納品済み", _kpi_delivered)
+    _kpi_cols2[2].metric("フィードバック提出率", f"{_kpi_fb_rate}%")
+    _kpi_cols2[3].metric("総フィードバック件数", len(_kpi_feedbacks))
+
+    st.subheader("フィードバック・改善")
+    _kpi_cols3 = st.columns(4)
+    _kpi_cols3[0].metric("未対応フィードバック", _kpi_fb_unres, delta=None)
+    _kpi_cols3[1].metric("緊急バグ (critical)", _kpi_fb_critical, delta=None)
+    _kpi_cols3[2].metric("改善ログ (進行中)", _kpi_imp_active, delta=None)
+    _kpi_cols3[3].metric("改善ログ (完了)", _kpi_imp_done, delta=None)
+
+    if _kpi_fb_critical > 0:
+        st.error(f"🚨 緊急バグが {_kpi_fb_critical} 件あります。早急に対応してください。")
+    elif _kpi_fb_high > 0:
+        st.warning(f"⚠️ 重要度「高」のフィードバックが {_kpi_fb_high} 件あります。")
+    else:
+        st.success("✅ 緊急バグは0件です。")
+
+    st.divider()
+    st.subheader("β版卒業判断基準（参考）")
+    _grad_checks = [
+        (_kpi_consented >= 5,         f"βテスター（同意済み）が 5 人以上: {_kpi_consented} 人"),
+        (_kpi_fb_rate >= 70,          f"フィードバック提出率 70% 以上: {_kpi_fb_rate}%"),
+        (_kpi_fb_critical == 0,       f"緊急バグ 0 件: {_kpi_fb_critical} 件"),
+        (_kpi_delivered >= 3,         f"納品済みジョブ 3 件以上: {_kpi_delivered} 件"),
+        (_kpi_imp_active == 0,        f"進行中の改善ログ 0 件: {_kpi_imp_active} 件"),
+    ]
+    for _ok, _label in _grad_checks:
+        if _ok:
+            st.write(f"✅ {_label}")
+        else:
+            st.write(f"⬜ {_label}")

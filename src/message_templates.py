@@ -310,3 +310,62 @@ def generate_refund_response(
         lines.append(extra_note)
 
     return "\n".join(lines)
+
+
+# ── β版納品メッセージテンプレート (Phase 15) ─────────────────────────────────
+
+def generate_beta_delivery_message(
+    dashboard_url: str,
+    customer_label: str = "",
+    plan_label: str = "β版フル解析",
+    feedback_form_url: str = "",
+    extra_note: str = "",
+) -> str:
+    """β版解析結果の納品メッセージを生成して返す。
+
+    Args:
+        dashboard_url     : Webダッシュボード URL
+        customer_label    : 顧客ラベル（省略可）
+        plan_label        : プラン表示名
+        feedback_form_url : フィードバックフォーム URL（省略可）
+        extra_note        : 追加メモ（省略可）
+    """
+    lines = []
+
+    if customer_label:
+        lines.append(f"{customer_label} 様")
+        lines.append("")
+
+    lines.append("このたびはjavelin動画解析β版にご参加いただきありがとうございます。")
+    lines.append("")
+    lines.append("━━ 解析結果のお届け ━━━━━━━━━━━━━━━━━━")
+    lines.append(f"プラン：{plan_label}（β版）")
+    lines.append("")
+    lines.append("📊 Webダッシュボード（スマホ・PCで閲覧できます）")
+    lines.append(f"  {dashboard_url}")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("")
+    lines.append("【β版について】")
+    lines.append("本サービスは現在β版のため、表示や解析内容に不完全な点が残る可能性があります。")
+    lines.append("結果に疑問点・不具合等があればお気軽にご連絡ください。")
+    lines.append("")
+    lines.append("【数値・グラフの見方】")
+    lines.append("表示されている数値・グラフは、動画から自動推定した参考値です。")
+    lines.append("撮影角度・画質・服装・背景により精度が変わります。")
+    lines.append("絶対評価ではなく、練習の振り返りの参考としてご活用ください。")
+    lines.append("")
+
+    if feedback_form_url:
+        lines.append("【フィードバックのお願い】")
+        lines.append("β版改善のため、ご利用後のご感想・不具合報告をお願いします。")
+        lines.append("所要時間：3〜5分程度")
+        lines.append(f"  {feedback_form_url}")
+        lines.append("")
+
+    if extra_note:
+        lines.append(extra_note)
+        lines.append("")
+
+    lines.append(_DISCLAIMER_FOOTER)
+
+    return "\n".join(lines)

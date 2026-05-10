@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+<style>
+/* ── リセット・ベース ─────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  background:#fff;color:#111;font-size:16px;line-height:1.7;padding-bottom:40px}
+a{color:#1a5fb4;text-decoration:none}a:hover{text-decoration:underline}
+img,video{max-width:100%;height:auto;display:block;border-radius:6px}
+/* ── レイアウト ───────────────────────────────────────────────── */
+.container{max-width:720px;margin:0 auto;padding:0 16px}
+/* ── ヘッダー ─────────────────────────────────────────────────── */
+.site-header{background:#1a1a2e;color:#fff;padding:20px 16px}
+.site-header h1{font-size:1.5rem;font-weight:700;margin-bottom:4px}
+.site-header .sub{font-size:.9rem;opacity:.8}
+/* ── カード ───────────────────────────────────────────────────── */
+.card{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:10px;
+  padding:16px;margin:16px 0}
+.card h2{font-size:1.1rem;font-weight:700;margin-bottom:10px;
+  border-left:4px solid #1a5fb4;padding-left:8px}
+.card h3{font-size:1rem;font-weight:600;margin:12px 0 6px}
+/* ── 警告・注意 ───────────────────────────────────────────────── */
+.alert{border-radius:8px;padding:14px 16px;margin:16px 0;font-size:.93rem}
+.alert-warning{background:#fff3cd;border:1px solid #f0ad4e;color:#6b4c00}
+.alert-info{background:#dbeafe;border:1px solid #93c5fd;color:#1e3a5f}
+.alert-danger{background:#f8d7da;border:1px solid #f5c6cb;color:#721c24}
+/* ── ステップリスト ───────────────────────────────────────────── */
+.step-list{list-style:none;counter-reset:step-counter}
+.step-list li{counter-increment:step-counter;padding:10px 10px 10px 44px;
+  border-bottom:1px solid #e0e0e0;position:relative}
+.step-list li::before{content:counter(step-counter);position:absolute;left:8px;
+  top:10px;background:#1a5fb4;color:#fff;width:26px;height:26px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700}
+.step-list li:last-child{border-bottom:none}
+/* ── ボタン・リンク ───────────────────────────────────────────── */
+.btn{display:inline-block;padding:12px 20px;border-radius:8px;font-size:1rem;
+  font-weight:600;cursor:pointer;margin:4px 4px 4px 0;min-height:48px;
+  line-height:1.4;text-align:center}
+.btn-primary{background:#1a5fb4;color:#fff}
+.btn-primary:hover{background:#1449a0;color:#fff;text-decoration:none}
+.btn-secondary{background:#f0f0f0;color:#111;border:1px solid #ccc}
+.btn-secondary:hover{background:#e0e0e0;text-decoration:none}
+.btn-dl{background:#2a7c3b;color:#fff}
+.btn-dl:hover{background:#1f5f2c;color:#fff;text-decoration:none}
+.btn-research{background:#888;color:#fff;font-size:.85rem;padding:8px 14px;min-height:40px}
+.btn-research:hover{background:#666;color:#fff;text-decoration:none}
+/* ── バッジ ───────────────────────────────────────────────────── */
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:.82rem;
+  background:#e8eaf6;margin:2px}
+.badge-high{background:#d4edda;color:#155724}
+.badge-medium{background:#fff3cd;color:#856404}
+.badge-low{background:#f8d7da;color:#721c24}
+.badge-unknown{background:#e2e3e5;color:#444}
+/* ── 指標カード ───────────────────────────────────────────────── */
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+@media(max-width:420px){.metric-grid{grid-template-columns:1fr}}
+.metric-card{background:#fff;border:1px solid #d0d0d0;border-radius:8px;
+  padding:12px;font-size:.9rem}
+.metric-card .m-label{font-weight:600;color:#333;margin-bottom:4px}
+.metric-card .m-value{font-size:1.35rem;font-weight:700;color:#1a5fb4}
+.metric-card .m-unit{font-size:.75rem;color:#666;margin-left:4px}
+.metric-card .m-caution{font-size:.75rem;color:#888;margin-top:4px;
+  border-top:1px solid #eee;padding-top:4px}
+/* ── フェーズ画像グリッド ─────────────────────────────────────── */
+.phase-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+@media(max-width:380px){.phase-grid{grid-template-columns:1fr}}
+.phase-item{background:#fff;border:1px solid #ddd;border-radius:8px;overflow:hidden}
+.phase-item img{width:100%;object-fit:cover}
+.phase-item .phase-label{padding:8px 10px;font-size:.85rem;font-weight:600}
+.phase-item .phase-meta{padding:0 10px 8px;font-size:.78rem;color:#666}
+.phase-item .phase-missing{padding:24px 10px;text-align:center;color:#999;font-size:.85rem}
+/* ── グラフ ───────────────────────────────────────────────────── */
+.graph-item{margin-bottom:16px}
+.graph-item figcaption{font-size:.82rem;color:#555;margin-top:6px}
+/* ── ダウンロードリスト ───────────────────────────────────────── */
+.dl-category{margin-bottom:18px}
+.dl-category h3{font-size:.95rem;font-weight:700;color:#444;margin-bottom:8px;
+  padding-bottom:4px;border-bottom:1px solid #e0e0e0}
+.dl-item{display:flex;align-items:center;gap:8px;padding:8px 4px;
+  border-bottom:1px solid #f0f0f0;font-size:.9rem}
+.dl-item:last-child{border-bottom:none}
+.dl-icon{font-size:1.1rem;flex-shrink:0}
+.dl-label{flex:1;min-width:0}
+.dl-unavailable{color:#999;font-size:.82rem}
+/* ── <details> 折りたたみ ─────────────────────────────────────── */
+details{background:#fff;border:1px solid #e0e0e0;border-radius:8px;margin:8px 0}
+details>summary{cursor:pointer;padding:12px 14px;font-weight:600;font-size:.95rem;
+  list-style:none;user-select:none}
+details>summary::after{content:" ▼";font-size:.75rem;float:right;color:#888}
+details[open]>summary::after{content:" ▲"}
+details .detail-inner{padding:4px 14px 14px}
+/* ── 信頼度バー ───────────────────────────────────────────────── */
+.rel-bar{display:flex;align-items:center;gap:8px;font-size:.88rem;margin-top:6px}
+.rel-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.rel-high{background:#28a745}.rel-medium{background:#ffc107}
+.rel-low{background:#dc3545}.rel-unknown{background:#aaa}
+/* ── フッター ─────────────────────────────────────────────────── */
+.site-footer{background:#f0f0f0;padding:20px 16px;font-size:.83rem;color:#666;
+  border-top:1px solid #ddd;margin-top:32px}
+/* ── 区切り線 ─────────────────────────────────────────────────── */
+hr{border:none;border-top:1px solid #e0e0e0;margin:8px 0}
+/* ── 動画コンテナ ─────────────────────────────────────────────── */
+.video-container{margin-bottom:16px;background:#000;border-radius:8px;overflow:hidden}
+video{width:100%}
+.video-label{font-size:.88rem;font-weight:600;margin-bottom:6px;color:#333}
+.video-caption{font-size:.8rem;color:#666;margin-top:6px}
+/* ── 問い合わせ情報 ────────────────────────────────────────────── */
+.inquiry-box{background:#f0f4ff;border:1px solid #c7d7f0;border-radius:8px;padding:14px;
+  font-size:.88rem}
+.inquiry-box code{background:#e8eaf6;padding:2px 6px;border-radius:4px;font-size:.85rem}
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="site-header">
+  <div class="container">
+    <h1>🏹 {{ title }}</h1>
+    <div class="sub">
+      {{ athlete_name_display }}{{ plan_display }}
+      ジョブID: <code style="font-size:.82rem;opacity:.8">{{ job_id }}</code> &nbsp;|&nbsp; 納品日: {{ delivered_at }}
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ── 最初に見る順番 ──────────────────────────────────────────── -->
+<div class="card" id="howto">
+  <h2>📋 最初に見る順番</h2>
+  <ul class="step-list">
+    <li><strong>注意事項を読む</strong><br>このページ下部の「注意事項・免責事項」を必ず確認してください。</li>
+    <li><strong>解析動画を見る</strong><br>骨格線・ヒートマップなど、各動画を順番に確認してください。</li>
+    <li><strong>代表フレームでフェーズを確認する</strong><br>助走〜フォロースルーの各局面を画像で確認できます。</li>
+    <li><strong>主要指標カードを見る</strong><br>リリースやブロックに関する参考指標をカード表示しています。</li>
+    <li><strong>PDFをダウンロードする</strong><br>詳細なレポートPDFは「ダウンロード」セクションからご確認ください。</li>
+  </ul>
+  <p style="margin-top:12px;font-size:.88rem;color:#666">
+    CSVやJSONは研究・開発用データのため、通常は開く必要はありません。
+  </p>
+</div>
+
+<!-- ── 注意事項バナー ────────────────────────────────────────── -->
+<div class="alert alert-warning" id="disclaimer-top">
+  <strong>⚠️ この解析結果をご利用の前に必ずお読みください</strong><br>
+  本解析は動画から取得した姿勢推定データをもとにした<strong>参考資料</strong>です。
+  動画の画質・撮影角度・服装・背景により精度が変わります。
+  医療診断・怪我の診断・専門的競技指導の代替ではありません。
+  数値は傾向把握の参考としてご活用ください。
+</div>
+
+<!-- ── 解析動画 ──────────────────────────────────────────────── -->
+{{ video_section }}
+
+<!-- ── 代表フレーム・フェーズ別画像 ──────────────────────────── -->
+{{ phase_images_section }}
+
+<!-- ── 主要指標カード ────────────────────────────────────────── -->
+{{ metrics_section }}
+
+<!-- ── グラフ ────────────────────────────────────────────────── -->
+{{ graphs_section }}
+
+<!-- ── ダウンロード ──────────────────────────────────────────── -->
+{{ downloads_section }}
+
+<!-- ── 問い合わせ ────────────────────────────────────────────── -->
+<div class="card" id="inquiry">
+  <h2>📬 お問い合わせの際にお伝えください</h2>
+  <div class="inquiry-box">
+    <p>不明な点やご要望がある場合は、以下の情報をお伝えください。</p>
+    <ul style="margin:10px 0 0 18px;line-height:2">
+      <li>ジョブID: <code>{{ job_id }}</code></li>
+      <li>納品日: {{ delivered_at }}</li>
+      <li>プラン: {{ plan_name }}</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ── 注意事項・免責事項 ─────────────────────────────────────── -->
+<div class="card" id="disclaimer">
+  <h2>📄 注意事項・免責事項</h2>
+  <div class="alert alert-danger">
+    <strong>この解析結果の利用にあたっての注意</strong>
+    <ul style="margin:8px 0 0 18px;line-height:1.9;font-size:.9rem">
+      <li>本解析は動画上の座標から算出した<strong>参考資料</strong>です。</li>
+      <li>実際の距離・速度・角度と完全に一致するわけではありません。</li>
+      <li>姿勢推定は服装・背景・照明・撮影角度により精度が変わります。</li>
+      <li>フェーズ推定・高度指標は自動推定であり、正解を保証するものではありません。</li>
+      <li>本資料は医療診断、怪我の診断、専門的な競技指導を代替するものではありません。</li>
+      <li>怪我や体の痛みがある場合は、医療機関にご相談ください。</li>
+      <li>競技指導については、専門のコーチにご相談ください。</li>
+    </ul>
+  </div>
+  <p style="font-size:.83rem;color:#666;margin-top:10px">
+    生成日時: {{ generated_at }} &nbsp;|&nbsp; バージョン: {{ metrics_version }}
+  </p>
+</div>
+
+</div><!-- /container -->
+
+<!-- フッター -->
+<div class="site-footer">
+  <div class="container">
+    やり投げ動画解析サービス — 本ページはジョブ <code>{{ job_id }}</code> の解析結果です。<br>
+    URLの有効期限: {{ url_expires_at_display }}<br>
+    期限切れの場合は再発行しますのでお問い合わせください。
+  </div>
+</div>
+
+<!-- 折りたたみJS（外部依存なし） -->
+<script>
+document.querySelectorAll('details').forEach(function(d){
+  d.addEventListener('toggle',function(){});
+});
+</script>
+</body>
+</html>

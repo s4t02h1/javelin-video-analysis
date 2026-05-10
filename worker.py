@@ -271,6 +271,135 @@ def _step_detect_phases(job_id: str, job_dir: Path) -> None:
         logger.warning("[worker] detect_phases 失敗（継続）: job_id=%s error=%s", job_id, e)
 
 
+def _step_compute_advanced_metrics(job_id: str, job_dir: Path) -> None:
+    """Phase 12: 高度解析指標を計算して保存する（非致命的）。
+
+    姿勢推定 CSV とフェーズ・イベントフレームをもとに参考指標を計算します。
+    失敗してもパイプライン処理は継続します。
+    """
+    try:
+        from src.analysis.advanced_metrics import compute_advanced_metrics_for_job
+        out = compute_advanced_metrics_for_job(job_dir)
+        logger.info("[worker] advanced_metrics 生成完了: %s job_id=%s", out.name, job_id)
+    except Exception as e:
+        logger.warning("[worker] advanced_metrics 生成失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_generate_advanced_metrics_report(job_id: str, job_dir: Path) -> None:
+    """Phase 12: 高度解析指標 PDF を生成する（非致命的）。
+
+    advanced_metrics.json をもとに advanced_metrics_report.pdf を生成します。
+    失敗してもパイプライン処理は継続します。
+    """
+    try:
+        from src.analysis.advanced_metrics_report import generate_advanced_metrics_report_for_job
+        out = generate_advanced_metrics_report_for_job(job_dir)
+        if out is not None:
+            logger.info("[worker] advanced_metrics_report PDF 生成完了: %s job_id=%s", out.name, job_id)
+        else:
+            logger.warning("[worker] advanced_metrics_report PDF 生成スキップ: job_id=%s", job_id)
+    except Exception as e:
+        logger.warning("[worker] advanced_metrics_report PDF 生成失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_export_advanced_metrics(job_id: str, job_dir: Path) -> None:
+    """Phase 12: 高度解析指標をエクスポート用ファイルに書き出す（非致命的）。"""
+    try:
+        from src.analysis.advanced_metrics_exporter import export_advanced_metrics_for_job
+        out = export_advanced_metrics_for_job(job_dir)
+        if out is not None:
+            logger.info("[worker] advanced_metrics export 完了: %s job_id=%s", out.name, job_id)
+    except Exception as e:
+        logger.warning("[worker] advanced_metrics export 失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_generate_user_dashboard(job_id: str, job_dir: Path) -> None:
+    """Phase 13: ユーザー向けダッシュボードHTMLを生成する（非致命的）。
+
+    advanced_metrics.json・フェーズ画像・グラフ等をもとに user_dashboard.html を生成します。
+    S3 presigned URL は upload_to_s3 後に別ステップで付与するため、ここではローカル生成のみ。
+    失敗しても通常のPDF・ZIP納品は続きます。
+    """
+    try:
+        from src.dashboard_generator import generate_user_dashboard_for_job
+        out = generate_user_dashboard_for_job(job_dir)
+        if out is not None:
+            logger.info("[worker] user_dashboard.html 生成完了: %s job_id=%s", out.name, job_id)
+        else:
+            logger.info("[worker] user_dashboard.html 生成スキップ（無効設定）: job_id=%s", job_id)
+    except Exception as e:
+        logger.warning("[worker] user_dashboard.html 生成失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_generate_dashboard_manifest(job_id: str, job_dir: Path) -> None:
+    """Phase 14: ダッシュボードマニフェスト JSON を生成する（非致命的）。
+
+    dashboard_manifest.json は公開 API とフロントエンドが使用するデータ定義ファイルです。
+    dashboard_token を割り当て、job.json に保存します。
+    """
+    try:
+        from src.dashboard_manifest import save_dashboard_manifest
+        out = save_dashboard_manifest(job_dir)
+        if out is not None:
+            logger.info("[worker] dashboard_manifest.json 生成完了: %s job_id=%s", out.name, job_id)
+        else:
+            logger.info("[worker] dashboard_manifest.json 生成スキップ: job_id=%s", job_id)
+    except Exception as e:
+        logger.warning("[worker] dashboard_manifest.json 生成失敗（継続）: job_id=%s error=%s", job_id, e)
+
+
+def _step_upload_dashboard_to_s3(job_id: str, job_dir: Path) -> Optional[str]:
+    """Phase 13: ダッシュボードHTML の presigned URL を返す（非致命的）。
+
+    user_dashboard.html は upload_to_s3 ステップで report/ ディレクトリと
+    一緒にアップロード済みのため、このステップでは presigned URL の生成のみ行う。
+    S3 未設定の場合は None を返す。
+    """
+    s3 = _import_s3_storage()
+    if s3 is None or not s3.is_s3_configured():
+        logger.info("[worker] S3 未設定のためダッシュボードURL生成をスキップ: job_id=%s", job_id)
+        return None
+
+    try:
+        dashboard_path = job_dir / "report" / "user_dashboard.html"
+        if not dashboard_path.exists():
+            logger.info("[worker] user_dashboard.html が存在しないためURL生成をスキップ: job_id=%s", job_id)
+            return None
+
+        s3_key = s3.build_s3_key_for_job(job_id, "report/user_dashboard.html")
+        url = s3.generate_presigned_url(s3_key)
+        logger.info("[worker] ダッシュボードpresigned URL 生成完了: job_id=%s", job_id)
+        return url
+    except Exception as e:
+        logger.warning("[worker] ダッシュボードURL生成エラー: job_id=%s error=%s", job_id, e)
+        return None
+
+
+def _step_update_dashboard_url(job_id: str, dashboard_url: Optional[str], expires_at: str = "") -> None:
+    """Phase 13: ジョブメタデータにダッシュボードURLを保存する（非致命的）。"""
+    jm = _import_job_manager()
+    try:
+        from datetime import datetime as _dt
+        now = _dt.now().isoformat(timespec="seconds")
+        update_fields: dict = {
+            "dashboard_generated_at": now,
+            "dashboard_upload_status": "complete" if dashboard_url else "local_only",
+        }
+        if dashboard_url:
+            update_fields["user_dashboard_url"] = dashboard_url
+            s3 = _import_s3_storage()
+            if s3:
+                update_fields["user_dashboard_s3_key"] = s3.build_s3_key_for_job(
+                    job_id, "report/user_dashboard.html"
+                )
+        if expires_at:
+            update_fields["dashboard_url_expires_at"] = expires_at
+        jm.update_job(job_id, **update_fields)
+        logger.info("[worker] ダッシュボードURL更新: job_id=%s url_set=%s", job_id, bool(dashboard_url))
+    except Exception as e:
+        logger.warning("[worker] ダッシュボードURL更新失敗: job_id=%s error=%s", job_id, e)
+
+
 def _step_create_annotation_draft(job_id: str, job_dir: Path) -> None:
     """Phase 10推定結果からアノテーションドラフトを作成する（非致命的）。
 
@@ -516,8 +645,16 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
         "detect_phases":       lambda: _step_detect_phases(job_id, job_dir),
         # Phase 11: アノテーションドラフト作成（非致命的）
         "create_annotation_draft": lambda: _step_create_annotation_draft(job_id, job_dir),
+        # Phase 12: 高度解析指標（非致命的）
+        "compute_advanced_metrics":          lambda: _step_compute_advanced_metrics(job_id, job_dir),
+        "generate_advanced_metrics_report":  lambda: _step_generate_advanced_metrics_report(job_id, job_dir),
+        "export_advanced_metrics":           lambda: _step_export_advanced_metrics(job_id, job_dir),
         "generate_reports":    lambda: _step_generate_reports(job_id, job_dir),
         "generate_packages":   lambda: _step_generate_packages(job_id, job_dir),
+        # Phase 13: ユーザー向けダッシュボード（非致命的）
+        "generate_user_dashboard": lambda: _step_generate_user_dashboard(job_id, job_dir),
+        # Phase 14: ダッシュボードマニフェスト（非致命的）
+        "generate_dashboard_manifest": lambda: _step_generate_dashboard_manifest(job_id, job_dir),
         "upload_to_s3":        lambda: _step_upload_to_s3(job_id, job_dir),
     }
     fatal_steps = {"validate_inputs", "run_analysis", "generate_artifacts"}
@@ -595,6 +732,48 @@ def _run_pipeline(queue_id: str, job_id: str, job_type: str) -> bool:
     except Exception as e:
         logger.warning("[worker] generate_delivery_page スキップ (非致命的): %s", e)
         record("generate_delivery_page", False, str(e))
+
+    # Phase 13: upload_user_dashboard（非致命的）
+    try:
+        qm.update_queue_job(queue_id, current_step="upload_user_dashboard")
+    except Exception:
+        pass
+    dashboard_url: Optional[str] = None
+    expires_at_str: str = ""
+    try:
+        dashboard_url = _step_upload_dashboard_to_s3(job_id, job_dir)
+        s3_mod = _import_s3_storage()
+        if s3_mod:
+            expires_at_str = s3_mod.get_presigned_url_expires_at()
+        record("upload_user_dashboard", True)
+        logger.info("[worker] ステップ完了: upload_user_dashboard (queue_id=%s)", queue_id)
+    except Exception as e:
+        logger.warning("[worker] upload_user_dashboard スキップ (非致命的): %s", e)
+        record("upload_user_dashboard", False, str(e))
+
+    # Phase 13: update_dashboard_url（非致命的）
+    try:
+        qm.update_queue_job(queue_id, current_step="update_dashboard_url")
+    except Exception:
+        pass
+    try:
+        _step_update_dashboard_url(job_id, dashboard_url, expires_at_str)
+        record("update_dashboard_url", True)
+    except Exception as e:
+        record("update_dashboard_url", False, str(e))
+
+    # Phase 14: refresh_dashboard_manifest（非致命的）- S3 URL 反映後にマニフェストを再生成
+    try:
+        qm.update_queue_job(queue_id, current_step="refresh_dashboard_manifest")
+    except Exception:
+        pass
+    try:
+        _step_generate_dashboard_manifest(job_id, job_dir)
+        record("refresh_dashboard_manifest", True)
+        logger.info("[worker] ステップ完了: refresh_dashboard_manifest (queue_id=%s)", queue_id)
+    except Exception as e:
+        logger.warning("[worker] refresh_dashboard_manifest スキップ (非致命的): %s", e)
+        record("refresh_dashboard_manifest", False, str(e))
 
     # update_delivery_url（非致命的）
     try:

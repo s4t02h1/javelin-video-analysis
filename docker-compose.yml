@@ -116,6 +116,26 @@ services:
   #     - redis_data:/data
   #   command: redis-server --appendonly yes
 
+  # ── Webフロントエンド（Phase 14 — Vite 開発サーバー） ─────────────────────────
+  # 本番環境では `npm run build` で生成した dist/ を nginx や CloudFront から配信してください。
+  frontend:
+    image: node:20-alpine
+    container_name: jva_frontend
+    restart: unless-stopped
+    working_dir: /app/frontend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app/frontend
+    environment:
+      VITE_API_BASE_URL: ${JVA_FRONTEND_API_URL:-http://localhost:8000}
+      VITE_APP_NAME: ${JVA_APP_NAME:-Javelin Video Analysis}
+    depends_on:
+      - api
+    profiles:
+      - frontend
+
 # ── ボリューム ─────────────────────────────────────────────────────────────────
 # redis_data:
 #   driver: local

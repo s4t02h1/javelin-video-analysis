@@ -1,0 +1,214 @@
+# configs/metric_labels.yaml — Phase 12 指標日本語ラベル定義
+#
+# UI・PDF・レポートでは、この日本語ラベルと説明文を優先して使用してください。
+# 内部変数名（キー）は英語のままです。
+#
+# 各エントリの構成:
+#   label       : 短い表示ラベル
+#   description : 指標の説明（高校生アスリートにも分かる文体）
+#   caution     : 注意事項（参考値であること等）
+#   unit        : 単位（UI 表示用）
+
+# ── リリース関連指標 ──────────────────────────────────────────────────────────
+
+release_wrist_height_normalized:
+  label: "リリース時の手首高さ"
+  description: "リリース候補フレームにおける投げ腕の手首の高さを、動画内の身体スケールで正規化した指標です。値が大きいほど高い位置でリリースしている傾向があります。"
+  caution: "動画上の座標から算出した参考値であり、実際の高さとは一致しない場合があります。撮影角度や姿勢推定の影響を受けます。"
+  unit: "body_scale"
+
+release_wrist_height_relative_to_shoulder:
+  label: "リリース時の手首と肩の高さの差"
+  description: "リリース時の手首高さと肩の高さの差を示します。正の値は手首が肩より高い位置にあることを意味します。"
+  caution: "2D動画上の参考値です。実際の高さとは異なる場合があります。"
+  unit: "body_scale"
+
+release_elbow_height_relative_to_shoulder:
+  label: "リリース時の肘の高さ（肩比）"
+  description: "リリース時の肘の高さと肩の高さの差を示します。肘が肩より高いほど正の値になります。"
+  caution: "2D動画上の参考値です。"
+  unit: "body_scale"
+
+release_wrist_velocity_px_per_sec:
+  label: "リリース時の手首速度"
+  description: "リリース候補フレーム前後の手首の移動速度を動画フレーム間の変化量として算出した参考値です。"
+  caution: "動画上の座標変化から算出した相対値であり、実際の速度（m/s）とは一致しません。撮影距離・解像度・フレームレートに依存します。"
+  unit: "px/sec(relative)"
+
+release_wrist_velocity_normalized:
+  label: "リリース時の手首速度（正規化）"
+  description: "リリース時の手首速度を身体スケールで正規化した値です。動画間の比較に使いやすい形にしています。"
+  caution: "あくまで動画上の相対比較用の参考値です。"
+  unit: "body_scale/sec"
+
+release_arm_extension_ratio:
+  label: "リリース時の腕伸展率"
+  description: "リリース時の腕の伸びを示す指標です。肩〜肘〜手首を経由する距離に対して、肩〜手首の直線距離がどのくらいの割合かを示します。1.0に近いほど腕がまっすぐ伸びている傾向があります。"
+  caution: "2D画像上の推定値です。撮影角度により誤差が生じます。"
+  unit: "ratio(0-1)"
+
+release_trunk_angle_estimate:
+  label: "リリース時の体幹前傾（推定）"
+  description: "リリース時の上体の前傾角度を2D動画から推定した参考値です。肩中心〜腰中心を結ぶ線の垂直からの傾きで計算しています。"
+  caution: "3Dの正確な角度ではありません。横方向の撮影条件が最適です。"
+  unit: "degrees(2D estimate)"
+
+release_shoulder_line_tilt:
+  label: "リリース時の肩ラインの傾き"
+  description: "リリース時の左右肩を結ぶラインが水平からどれだけ傾いているかを示す2D推定値です。"
+  caution: "3Dの正確な角度ではなく、2D画像上の見かけの角度です。"
+  unit: "degrees(2D estimate)"
+
+release_hip_line_tilt:
+  label: "リリース時の腰ラインの傾き"
+  description: "リリース時の左右腰を結ぶラインの水平からの傾きを示す2D推定値です。"
+  caution: "2D画像上の参考値です。"
+  unit: "degrees(2D estimate)"
+
+release_hand_to_shoulder_distance:
+  label: "リリース時の肩〜手首距離"
+  description: "リリース時の投げ腕の肩と手首の間の距離を示す相対値です。"
+  caution: "2D画像上の参考値です。"
+  unit: "px(normalized)"
+
+# ── ブロック関連指標 ──────────────────────────────────────────────────────────
+
+front_ankle_stability_score:
+  label: "ブロック脚足首の安定性"
+  description: "ブロック候補フレーム前後の足首位置のばらつきを示します。値が小さいほど安定して接地できている傾向があります。"
+  caution: "姿勢推定精度・動画品質の影響を受けます。参考指標としてご確認ください。"
+  unit: "std(normalized)"
+
+front_knee_stability_score:
+  label: "ブロック脚膝の安定性"
+  description: "ブロック候補フレーム前後の膝位置のばらつきを示します。"
+  caution: "姿勢推定精度・動画品質の影響を受けます。"
+  unit: "std(normalized)"
+
+hip_center_velocity_before_block:
+  label: "ブロック直前の腰中心速度"
+  description: "ブロック候補フレーム直前の腰中心（左右腰の中点）の移動速度の参考値です。"
+  caution: "動画上の相対速度です。実際の速度とは異なります。"
+  unit: "px/sec(relative)"
+
+hip_center_velocity_after_block:
+  label: "ブロック直後の腰中心速度"
+  description: "ブロック候補フレーム直後の腰中心の移動速度の参考値です。"
+  caution: "動画上の相対速度です。"
+  unit: "px/sec(relative)"
+
+hip_deceleration_ratio:
+  label: "ブロック前後の腰中心減速比"
+  description: "ブロック候補フレームの前後で、腰中心の移動速度がどの程度変化したかを示す参考指標です。1.0未満は減速を示します。効果的なブロックでは腰の前進速度が急減する傾向がありますが、あくまで参考値です。"
+  caution: "撮影角度や姿勢推定の影響を受けます。数値の大小だけで評価しないでください。"
+  unit: "ratio(after/before)"
+
+block_to_release_time_sec:
+  label: "ブロック〜リリースの時間"
+  description: "ブロック候補フレームからリリース候補フレームまでの経過時間です。"
+  caution: "フレーム特定精度の影響を受けます。参考値としてご確認ください。"
+  unit: "sec"
+
+shoulder_rotation_change_around_block:
+  label: "ブロック〜リリース間の肩回旋変化（推定）"
+  description: "ブロック候補フレームからリリース候補フレームにかけて、肩ラインの向きがどの程度変化したかを2D動画から推定した参考値です。"
+  caution: "3Dの正確な回旋角ではなく、2D画像上の見かけの変化量です。横方向の撮影条件が最適です。"
+  unit: "degrees(2D estimate)"
+
+hip_rotation_change_around_block:
+  label: "ブロック〜リリース間の腰回旋変化（推定）"
+  description: "ブロックからリリースにかけての腰ラインの回旋変化を2D動画から推定した参考値です。"
+  caution: "3Dの正確な回旋角ではありません。撮影角度の影響を受けます。"
+  unit: "degrees(2D estimate)"
+
+# ── 体幹・肩腰分離指標 ────────────────────────────────────────────────────────
+
+shoulder_hip_separation_angle_estimate:
+  label: "肩腰分離の推定角度"
+  description: "左右肩ラインと左右腰ラインの見かけ上の差をもとにした2D推定値です。肩と腰が異なる方向を向いているほど大きな値になる傾向があります。やり投げでは体幹の回旋を生かすことが重要とされますが、この値はその参考指標の一つです。"
+  caution: "3Dの正確な回旋角ではありません。横方向または斜め方向の撮影条件に影響されます。数値のみで動作を評価しないでください。"
+  unit: "degrees(2D estimate)"
+
+trunk_tilt_estimate:
+  label: "体幹前傾の推定"
+  description: "肩中心〜腰中心を結ぶ線の垂直からの傾きで、体幹がどの程度前傾しているかを2D動画から推定した参考値です。"
+  caution: "2D動画上の見かけの角度です。正確な3D角度とは異なります。"
+  unit: "degrees(2D estimate)"
+
+trunk_opening_at_release:
+  label: "リリース時の体幹開き（推定）"
+  description: "リリース候補フレームにおける肩腰分離角度の推定値です。体幹の回旋量の参考指標として使用できます。"
+  caution: "2D推定値であり、撮影角度・姿勢推定精度の影響を受けます。"
+  unit: "degrees(2D estimate)"
+
+# ── 投げ腕関連指標 ────────────────────────────────────────────────────────────
+
+throwing_wrist_path_length:
+  label: "投げ腕手首の軌跡長"
+  description: "動画全体での投げ腕の手首が通った軌跡の総距離を相対値で示します。"
+  caution: "動画上の相対距離です。実際の距離とは異なります。"
+  unit: "px(relative)"
+
+throwing_wrist_peak_velocity:
+  label: "投げ腕手首の最大速度（参考）"
+  description: "動画全体での投げ腕の手首速度のピーク値です。実際の投げの勢いの参考指標として使用できます。"
+  caution: "動画上の座標変化から算出した相対値であり、実際のリリース速度とは異なります。FPS・撮影距離・解像度に依存します。"
+  unit: "px/sec(relative)"
+
+throwing_wrist_velocity_at_release:
+  label: "リリース時の投げ腕手首速度"
+  description: "リリース候補フレーム付近の手首速度の参考値です。"
+  caution: "動画上の相対値です。実際の速度とは異なります。"
+  unit: "px/sec(relative)"
+
+elbow_angle_estimate_at_release:
+  label: "リリース時の肘角度（2D推定）"
+  description: "リリース候補フレームにおける肩〜肘〜手首の2D角度です。値が大きいほど肘が伸びている傾向があります。"
+  caution: "2D画像上の推定値です。正面・背面からの撮影では特に誤差が大きくなります。横方向の撮影が最適です。"
+  unit: "degrees(2D estimate)"
+
+shoulder_elbow_wrist_alignment_score:
+  label: "リリース時の腕の整列度"
+  description: "リリース時の肩・肘・手首がどの程度一直線に並んでいるかを示す参考スコアです。1.0に近いほど整列度が高い傾向があります。"
+  caution: "2D画像上の参考値です。"
+  unit: "ratio(0-1)"
+
+arm_pullback_distance_estimate:
+  label: "槍引き距離の推定"
+  description: "槍を引く動作（withdrawal）フェーズ中の手首の移動距離を相対値で示します。大きいほど引き幅が広い傾向があります。"
+  caution: "2D動画上の参考値です。槍引きフェーズが指定されていない場合は計算できません。"
+  unit: "px(relative)"
+
+withdrawal_to_release_time_sec:
+  label: "槍引き完了〜リリースの時間"
+  description: "槍引き動作完了からリリースまでの経過時間の参考値です。"
+  caution: "フェーズ指定精度の影響を受けます。"
+  unit: "sec"
+
+# ── 軌跡指標 ──────────────────────────────────────────────────────────────────
+
+wrist_trajectory_smoothness:
+  label: "手首軌跡のなめらかさ"
+  description: "手首速度の変動係数（CV）で、軌跡のなめらかさを示します。値が小さいほど速度変化が少なく、滑らかな軌跡の傾向があります。"
+  caution: "動画品質・FPS・撮影距離の影響を受けます。"
+  unit: "CV(coeff_of_variation)"
+
+hip_center_forward_trend:
+  label: "腰中心の前進傾向"
+  description: "動画全体での腰中心の横方向（前後方向）の移動量の参考値です。正の値は前進傾向を示します。"
+  caution: "撮影方向と選手の移動方向の関係に依存します。"
+  unit: "px(relative)"
+
+# ── 汎用 ─────────────────────────────────────────────────────────────────────
+
+metrics_reliability:
+  label: "指標の総合信頼度"
+  description: "動画品質・姿勢推定検出率・フェーズ指定の精度などをもとに算出した、指標全体の信頼度評価です。"
+  caution: "信頼度が low または unknown の場合は、数値の解釈に注意してください。"
+  unit: ""
+
+pose_detection_rate:
+  label: "姿勢推定検出率"
+  description: "動画全体で主要なランドマーク（肩・腰・手首など）が正常に検出できたフレームの割合です。"
+  caution: "値が低い場合（65%未満目安）、指標の精度が低下します。"
+  unit: "ratio(0-1)"

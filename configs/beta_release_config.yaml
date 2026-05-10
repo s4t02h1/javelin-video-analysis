@@ -1,0 +1,124 @@
+# configs/beta_release_config.yaml — Phase 15: β版リリース設定
+#
+# ⚠️ 方針
+#   - 解析結果は参考資料であり、医療診断・怪我の診断・専門的競技指導を代替しない
+#   - β版であるため、機能や表示に不具合が残る可能性がある
+#   - フィードバックの協力をお願いする
+#   - 文面や価格は後から変更できるようにしている
+#   - 既存の pricing_plans.yaml は壊さない
+
+beta:
+  enabled: true
+  label: "正式β版"
+  version: "0.1.0-beta"
+  max_testers: 30
+  target_users:
+    - "高校生やり投げ選手"
+    - "大学生やり投げ選手"
+    - "マスターズ選手"
+    - "指導者"
+  default_plan: "beta_full_report"
+  feedback_required: true
+  delivery_target_days: "数日〜1週間程度"
+  allow_paid_beta: false
+  allow_free_beta_slots: true
+  require_consent: true
+  require_feedback_form: true
+  feedback_form_url: ""        # Google フォーム URL（管理者が設定）
+  application_form_url: ""     # 申込フォーム URL（管理者が設定）
+
+# β版の全体的な注意事項（利用前説明・納品メッセージで参照される）
+beta_notices:
+  - "本サービスは現在β版のため、表示や解析内容に不完全な点が残る可能性があります。"
+  - "解析結果は、動画から取得した姿勢推定データをもとにした参考資料です。"
+  - "動画の画質・撮影角度・服装・背景によって精度が変わります。"
+  - "フェーズ推定・高度指標は自動推定であり、正解を保証するものではありません。"
+  - "医療診断・怪我の診断・専門的競技指導を代替するものではありません。"
+  - "怪我や体の痛みがある場合は医療機関に、競技指導については専門コーチにご相談ください。"
+  - "未成年の方がご利用の場合は、保護者または指導者の確認を推奨します。"
+  - "ご意見・ご不満・不具合についてフィードバックをお願いします。"
+
+# β版プラン定義（pricing_plans.yaml とは独立して管理）
+beta_plans:
+  beta_preview:
+    label: "β版プレビュー"
+    price_jpy: 0
+    payment_required: false
+    description: "β版の動作確認を兼ねた簡易解析。フィードバック任意。"
+    deliverables:
+      - "解析動画（骨格線つき）"
+      - "代表フレーム画像"
+      - "動画の見方PDF"
+    estimated_delivery_days: "2〜5日"
+
+  beta_full_report:
+    label: "β版フル解析"
+    price_jpy: 0
+    payment_required: false
+    description: "フィードバック協力を前提にしたβ版フル解析。"
+    deliverables:
+      - "解析動画（骨格線つき）"
+      - "代表フレーム画像"
+      - "グラフ（参考）"
+      - "高度解析指標レポートPDF（参考）"
+      - "選手向けデータシートPDF"
+      - "Webダッシュボード（スマホで見やすい）"
+    estimated_delivery_days: "数日〜1週間"
+
+  beta_comparison:
+    label: "β版2動画比較"
+    price_jpy: 0
+    payment_required: false
+    description: "改善前後や成功・失敗投てきの比較解析。フィードバック協力前提。"
+    deliverables:
+      - "解析動画2本（骨格線つき）"
+      - "比較動画"
+      - "代表フレーム画像（各試技）"
+      - "比較レポートPDF（参考）"
+      - "Webダッシュボード"
+    estimated_delivery_days: "数日〜1週間"
+
+# βテスターステータス定義
+tester_statuses:
+  candidate:  "候補者"
+  invited:    "招待済み"
+  accepted:   "参加承認"
+  active:     "解析中"
+  completed:  "完了"
+  declined:   "辞退"
+  archived:   "アーカイブ"
+
+# フィードバックステータス定義
+feedback_statuses:
+  not_requested: "未依頼"
+  requested:     "依頼済み"
+  submitted:     "提出済み"
+  reviewed:      "確認済み"
+  missing:       "未提出（期限超過）"
+
+# 同意ステータス定義
+consent_statuses:
+  not_sent:           "未送付"
+  sent:               "送付済み"
+  agreed:             "同意済み"
+  declined:           "同意不可"
+  needs_confirmation: "確認が必要"
+
+# KPI目標（参考値）
+kpi_targets:
+  min_testers_for_launch: 5
+  feedback_rate_target_pct: 70
+  critical_bugs_max: 0
+  avg_delivery_days_target: 7
+
+# β版の締め切り（任意。未設定なら無期限）
+beta_deadline: ""  # 例: "2026-07-31"
+
+# 正式版移行の判断基準（参考）
+graduation_criteria:
+  - "βテスター数が目標に達している"
+  - "フィードバック提出率が 70% 以上"
+  - "重大不具合（critical）が 0 件"
+  - "平均納品日数が 7 日以内"
+  - "解析・PDF・ダッシュボードが安定して動作する"
+  - "利用規約・プライバシーポリシーの法務確認が完了している"

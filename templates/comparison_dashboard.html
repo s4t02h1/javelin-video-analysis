@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  background:#fff;color:#111;font-size:16px;line-height:1.7;padding-bottom:40px}
+a{color:#1a5fb4;text-decoration:none}a:hover{text-decoration:underline}
+img,video{max-width:100%;height:auto;display:block;border-radius:6px}
+.container{max-width:720px;margin:0 auto;padding:0 16px}
+.site-header{background:#2c1810;color:#fff;padding:20px 16px}
+.site-header h1{font-size:1.5rem;font-weight:700;margin-bottom:4px}
+.site-header .sub{font-size:.9rem;opacity:.8}
+.card{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:10px;padding:16px;margin:16px 0}
+.card h2{font-size:1.1rem;font-weight:700;margin-bottom:10px;border-left:4px solid #c0392b;padding-left:8px}
+.alert{border-radius:8px;padding:14px 16px;margin:16px 0;font-size:.93rem}
+.alert-warning{background:#fff3cd;border:1px solid #f0ad4e;color:#6b4c00}
+.alert-danger{background:#f8d7da;border:1px solid #f5c6cb;color:#721c24}
+.ab-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+@media(max-width:480px){.ab-grid{grid-template-columns:1fr}}
+.ab-col{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px}
+.ab-col h3{font-size:.95rem;font-weight:700;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid #ddd}
+.ab-col.col-a h3{border-color:#1a5fb4;color:#1a5fb4}
+.ab-col.col-b h3{border-color:#c0392b;color:#c0392b}
+.metric-diff{margin:6px 0;font-size:.88rem;padding:6px 10px;border-radius:6px;background:#f0f0f0}
+.metric-diff .d-label{font-weight:600;color:#333}
+.metric-diff .d-val-a{color:#1a5fb4;font-weight:700}
+.metric-diff .d-val-b{color:#c0392b;font-weight:700}
+.metric-diff .d-delta{font-size:.8rem;color:#555;margin-top:2px}
+.metric-diff .d-interp{font-size:.82rem;color:#444;margin-top:4px;border-top:1px solid #e0e0e0;padding-top:4px}
+.badge-notable{background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:.78rem}
+.btn{display:inline-block;padding:12px 20px;border-radius:8px;font-size:1rem;font-weight:600;
+  cursor:pointer;margin:4px 4px 4px 0;min-height:48px;line-height:1.4;text-align:center}
+.btn-primary{background:#1a5fb4;color:#fff}
+.btn-dl{background:#2a7c3b;color:#fff}
+.btn-dl:hover{background:#1f5f2c;color:#fff;text-decoration:none}
+details{background:#fff;border:1px solid #e0e0e0;border-radius:8px;margin:8px 0}
+details>summary{cursor:pointer;padding:12px 14px;font-weight:600;font-size:.95rem;list-style:none;user-select:none}
+details>summary::after{content:" ▼";font-size:.75rem;float:right;color:#888}
+details[open]>summary::after{content:" ▲"}
+details .detail-inner{padding:4px 14px 14px}
+.phase-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+@media(max-width:380px){.phase-grid{grid-template-columns:1fr}}
+.phase-item{background:#fff;border:1px solid #ddd;border-radius:8px;overflow:hidden}
+.phase-item img{width:100%;object-fit:cover}
+.phase-item .phase-label{padding:8px 10px;font-size:.85rem;font-weight:600}
+.phase-item .phase-missing{padding:24px 10px;text-align:center;color:#999;font-size:.85rem}
+.site-footer{background:#f0f0f0;padding:20px 16px;font-size:.83rem;color:#666;border-top:1px solid #ddd;margin-top:32px}
+.inquiry-box{background:#f0f4ff;border:1px solid #c7d7f0;border-radius:8px;padding:14px;font-size:.88rem}
+.inquiry-box code{background:#e8eaf6;padding:2px 6px;border-radius:4px;font-size:.85rem}
+</style>
+</head>
+<body>
+
+<div class="site-header">
+  <div class="container">
+    <h1>⚖️ {{ title }}</h1>
+    <div class="sub">
+      {{ label_a }} vs {{ label_b }} &nbsp;|&nbsp;
+      比較ID: <code style="font-size:.82rem;opacity:.8">{{ comparison_id }}</code> &nbsp;|&nbsp;
+      生成日: {{ generated_at }}
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="card" id="howto">
+  <h2>📋 この比較レポートについて</h2>
+  <p style="font-size:.92rem">
+    2つの動画（動画A・動画B）を比較した参考レポートです。
+    各指標の差異は「傾向」として表示しており、どちらが優れているかを断定するものではありません。
+    撮影条件・姿勢推定精度の違いにより差が生じることもあります。
+  </p>
+</div>
+
+<div class="alert alert-warning">
+  <strong>⚠️ 重要な注意</strong><br>
+  本比較は動画から算出した参考指標の比較です。撮影角度・距離・解像度が異なる場合、比較精度が下がります。
+  数値の差異だけで動作を評価しないでください。医療診断・専門的競技指導の代替ではありません。
+</div>
+
+<!-- A/B基本情報 -->
+{{ ab_info_section }}
+
+<!-- A/B動画 -->
+{{ ab_video_section }}
+
+<!-- フェーズ別画像比較 -->
+{{ ab_phase_images_section }}
+
+<!-- 主要指標差分 -->
+{{ ab_metrics_section }}
+
+<!-- ダウンロード -->
+{{ ab_downloads_section }}
+
+<!-- 問い合わせ -->
+<div class="card" id="inquiry">
+  <h2>📬 お問い合わせ</h2>
+  <div class="inquiry-box">
+    <ul style="margin:8px 0 0 18px;line-height:2">
+      <li>比較ID: <code>{{ comparison_id }}</code></li>
+      <li>動画A: <code>{{ job_a_id }}</code></li>
+      <li>動画B: <code>{{ job_b_id }}</code></li>
+    </ul>
+  </div>
+</div>
+
+<!-- 免責事項 -->
+<div class="card" id="disclaimer">
+  <h2>📄 注意事項・免責事項</h2>
+  <div class="alert alert-danger">
+    <strong>この比較レポートの利用にあたって</strong>
+    <ul style="margin:8px 0 0 18px;line-height:1.9;font-size:.9rem">
+      <li>本比較は動画上の座標から算出した<strong>参考資料</strong>です。</li>
+      <li>2つの動画の撮影条件が異なる場合、比較の精度が低下します。</li>
+      <li>指標の差異は「傾向」であり、優劣の断定ではありません。</li>
+      <li>医療診断・怪我の診断・専門的競技指導の代替ではありません。</li>
+    </ul>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<div class="site-footer">
+  <div class="container">
+    やり投げ動画解析サービス — 比較レポート <code>{{ comparison_id }}</code><br>
+    URLの有効期限: {{ url_expires_at_display }}
+  </div>
+</div>
+</body>
+</html>

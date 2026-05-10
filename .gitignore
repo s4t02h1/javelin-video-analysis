@@ -41,13 +41,67 @@ wheels/
 share/python-wheels/
 MANIFEST
 
-# Project data & outputs
+# ── 入力動画・ユーザーアップロード ───────────────────────────────────────────
+# 実ユーザーの動画・画像は絶対にコミットしない
 input/
+uploads/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+# ただし create_test_video.py 等でリポジトリ内に保存するダミー動画は除外可
+# !tests/fixtures/*.mp4
+
+# ── 解析成果物・出力 ─────────────────────────────────────────────────────────
+# 解析結果・生成ファイルはコミットしない
 output/
 data/input/
 data/output/
 
-# Misc
+# ── ジョブデータ（本番ユーザーデータ） ────────────────────────────────────────
+# jobs/ ディレクトリは全て除外（ユーザー解析データ）
+jobs/
+# ただしテスト用ジョブのフィクスチャは必要に応じて除外解除可
+# !tests/fixtures/jobs/
+
+# ── ユーザー管理データ（個人情報） ─────────────────────────────────────────────
+# β版テスター・申込・フィードバックデータ（個人情報を含む）
+data/beta_testers/
+data/feedback/
+data/improvement_logs/
+data/intakes/
+data/orders/
+data/queue/
+data/annotations/
+# data/ 全体を除外（上記の個別指定より広い範囲）
+data/
+
+# ── 生成レポート・PDF ────────────────────────────────────────────────────────
+# ユーザー向けに生成された PDF レポートはコミットしない
+reports/
+*.pdf
+
+# ── S3 関連ローカルファイル ──────────────────────────────────────────────────
+# S3 接続設定・キャッシュ・ダウンロードファイルはコミットしない
+.aws/
+aws_credentials*
+s3_cache/
+presigned_urls*.txt
+presigned_urls*.json
+
+# ── ログ ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+job_*.log
+worker_*.log
+
+# ── 一時ファイル ──────────────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
 .pypirc
 .cursorignore
 .cursorindexingignore
@@ -57,14 +111,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Project-specific
-jobs/
+# ── Project-specific (test artifacts) ────────────────────────────────────────
 _test_*.py
 test_cid.pdf
 test_font*.pdf
 test_pdf.pdf
-input/
-output/
-data/input/
-data/output/
 

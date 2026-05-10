@@ -365,8 +365,11 @@ class TestDeploymentDocs(unittest.TestCase):
         self.assertTrue((_REPO_ROOT / "docs" / "security_checklist.md").exists())
 
     def test_readme_has_phase8(self) -> None:
+        # NOTE: README は公開デモ版に書き直されたため "Phase 8" の記載はない。
+        # 代わりに、README が公開デモ版として適切な内容を持つことを確認する。
         readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("Phase 8", readme)
+        self.assertIn("MediaPipe", readme, "README に MediaPipe の記載がありません")
+        self.assertIn("javelin", readme.lower(), "README に javelin の記載がありません")
 
     def test_scripts_exist(self) -> None:
         for s in ["dev_api.ps1", "dev_admin.ps1", "dev_worker.ps1", "docker_up.ps1", "docker_down.ps1"]:

@@ -1,0 +1,33 @@
+# configs/dashboard.yaml — Phase 13: ユーザー向けダッシュボード設定
+
+enabled: true
+
+# ダッシュボードをメイン納品URLとして扱うか
+use_dashboard_as_primary_delivery: true
+
+# 生成設定
+generate_static_html: true
+include_videos: true
+include_phase_images: true
+include_advanced_metrics: true
+include_graphs: true
+include_download_links: true
+include_research_data_section: true
+
+# 免責事項を必ず表示する
+require_disclaimer: true
+
+# presigned URL 有効期限（日数）
+default_url_expires_days: 14
+
+# スタイル設定
+style:
+  theme: "simple"            # simple: 白背景・黒文字
+  mobile_first: true
+  show_metric_cards: true
+  show_detail_sections_collapsed: true
+
+# 比較ダッシュボード
+comparison:
+  enabled: true
+  notable_change_display_threshold_percent: 10.0

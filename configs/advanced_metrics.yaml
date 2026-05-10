@@ -1,0 +1,73 @@
+# configs/advanced_metrics.yaml — Phase 12 解析指標の高度化 設定
+#
+# ⚠️ 注意:
+#   - この設定ファイルで算出される指標は参考値です。
+#   - 医療診断・競技指導・怪我の診断の代替ではありません。
+#   - 動画上の座標から算出した相対指標であり、実際の距離・速度とは異なる場合があります。
+
+enabled: true
+
+# アノテーション情報を優先使用する（Phase 11 連携）
+use_annotations_if_available: true
+
+# 手動指定フェーズラベルを自動推定より優先する
+use_manual_phase_labels_first: true
+
+# 身体スケール正規化を有効にする（肩幅・肩腰距離を基準とする）
+normalize_by_body_scale: true
+
+# 身長情報がある場合に追加正規化を試みる
+normalize_by_height_if_available: true
+
+# ── 信頼度判定基準 ────────────────────────────────────────────────────────────
+reliability:
+  # この値以上の姿勢推定検出率で "high" と判定
+  min_pose_detection_rate_high: 0.85
+  # この値以上の検出率で "medium" と判定
+  min_pose_detection_rate_medium: 0.65
+  # この値未満の confidence で "low" と判定
+  low_confidence_threshold: 0.45
+
+# ── 各指標カテゴリの有効化設定 ────────────────────────────────────────────────
+metrics:
+  release:
+    enabled: true
+  block:
+    enabled: true
+  trunk:
+    enabled: true
+  arm:
+    enabled: true
+  trajectory:
+    enabled: true
+  phase:
+    enabled: true
+
+# ── 比較指標設定 ──────────────────────────────────────────────────────────────
+comparison:
+  enabled: true
+  # この信頼度以上の指標のみ解釈文を生成する
+  min_reliability_for_interpretation: "medium"
+  # 差分がこの割合以上の場合に「変化が大きい可能性」として表示
+  notable_change_threshold_percent: 10.0
+
+# ── エクスポート設定 ─────────────────────────────────────────────────────────
+export:
+  output_dir: "exports/metrics"
+  # エクスポートに含める主要指標キー
+  include_keys:
+    - "dominant_arm"
+    - "fps"
+    - "overall_quality"
+    - "metrics_reliability"
+    - "pose_detection_rate"
+    - "release_wrist_height_normalized"
+    - "release_wrist_velocity_normalized"
+    - "release_arm_extension_ratio"
+    - "block_to_release_time_sec"
+    - "hip_deceleration_ratio"
+    - "shoulder_hip_separation_angle_estimate"
+    - "trunk_opening_at_release"
+    - "throwing_wrist_peak_velocity"
+    - "arm_pullback_distance_estimate"
+    - "withdrawal_to_release_time_sec"

@@ -26,6 +26,7 @@ from subprocess import CalledProcessError, run as subprocess_run
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 logger = logging.getLogger("jva.server")
@@ -54,6 +55,20 @@ except ImportError:
 
 app = FastAPI(title="JVA Minimal SaaS")
 
+# ── CORS（フロントエンド開発サーバー対応） ────────────────────────────────────
+_CORS_ORIGINS: list[str] = [
+    o.strip()
+    for o in os.getenv("JVA_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["X-JVA-API-Key", "Authorization", "Content-Type"],
+)
+
 # ── Jobs API ルーター（Phase 7） ───────────────────────────────────────────────
 try:
     from server.jobs_api import jobs_router
@@ -69,6 +84,22 @@ try:
     logger.info("Intake API ルーターを読み込みました。")
 except ImportError as _ie:
     logger.warning("Intake API ルーターの読み込みに失敗しました: %s", _ie)
+
+# ── パブリックダッシュボード API ルーター（Phase 14） ──────────────────────────
+try:
+    from server.public_dashboard_api import public_dashboard_router
+    app.include_router(public_dashboard_router, prefix="/v1/public")
+    logger.info("Public Dashboard API ルーターを読み込みました。")
+except ImportError as _ie:
+    logger.warning("Public Dashboard API ルーターの読み込みに失敗しました: %s", _ie)
+
+# ── フィードバック API ルーター（Phase 15） ───────────────────────────────────
+try:
+    from server.feedback_api import feedback_router
+    app.include_router(feedback_router, prefix="/v1/public")
+    logger.info("Feedback API ルーターを読み込みました。")
+except ImportError as _ie:
+    logger.warning("Feedback API ルーターの読み込みに失敗しました: %s", _ie)
 
 
 # ── S3 ユーティリティ ────────────────────────────────────────────────────────
