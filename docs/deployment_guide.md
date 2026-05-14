@@ -131,6 +131,7 @@ docker compose down -v
 | `JVA_LOG_DIR` | `logs` | ログディレクトリ |
 | `JVA_ADMIN_TOKEN` | `""` | `GET /api/upload-receipts` を保護する管理者トークン |
 | `JVA_MAX_UPLOAD_MB` | `300` | Web受付のアップロード上限サイズ（MB） |
+| `JVA_CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | ブラウザから FastAPI を呼び出せる Origin 一覧 |
 | `JVA_API_KEY` | `""` | API 認証キー（本番では必須） |
 | `JVA_BUCKET` | `your-bucket-name` | S3 バケット名 |
 | `JVA_WORKER_POLL_INTERVAL_SECONDS` | `5` | ワーカーポーリング間隔（秒） |
@@ -158,6 +159,7 @@ docker compose down -v
 JVA_ENV=production
 JVA_ADMIN_TOKEN=<32文字以上のランダム文字列>
 JVA_MAX_UPLOAD_MB=300
+JVA_CORS_ORIGINS=https://<your-frontend-domain>
 ```
 
 生成例:
@@ -176,6 +178,7 @@ VITE_API_BASE_URL=https://<your-api-domain>
 
 - `JVA_ADMIN_TOKEN` が未設定だと `/api/upload-receipts` は `503` を返す
 - `VITE_API_BASE_URL` はブラウザから到達できる FastAPI の本番URLを指す
+- `JVA_CORS_ORIGINS` に `https://<your-frontend-domain>` が入っていないと、本番ブラウザから `/api/upload` への送信が失敗する
 - LINE で案内する URL は `https://<your-frontend-domain>/upload` を使用する
 
 ### 2. API保護確認
