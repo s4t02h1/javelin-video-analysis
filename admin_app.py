@@ -11,8 +11,11 @@ admin_app.py — Javelin Video Analysis 管理画面 (Streamlit)
 """
 
 import json
+import os
+import shutil
 import subprocess
 import sys
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -412,6 +415,35 @@ except ImportError:
     def _beta_delivery_msg(*_a, **_kw) -> str:  # type: ignore[misc]
         return ""
 
+# ── β版動画アップロード受付一覧 ───────────────────────────────────────────────
+try:
+    from src.upload_receipts import (
+        list_upload_receipts,
+        resolve_receipt_file_path,
+        resolve_output_dir,
+        update_upload_receipt,
+        WEB_RECEIPT_STATUSES,
+        WEB_RECEIPT_STATUS_LABELS,
+    )
+    _UPLOAD_RECEIPTS_AVAILABLE = True
+except ImportError:
+    _UPLOAD_RECEIPTS_AVAILABLE = False
+
+    def list_upload_receipts(*_a, **_kw):  # type: ignore[misc]
+        return []
+
+    def resolve_receipt_file_path(*_a, **_kw):  # type: ignore[misc]
+        raise ValueError("upload_receipts module not available")
+
+    def resolve_output_dir(receipt_id: str):  # type: ignore[misc]
+        return _REPO_ROOT / "outputs" / receipt_id
+
+    def update_upload_receipt(*_a, **_kw):  # type: ignore[misc]
+        raise ValueError("upload_receipts module not available")
+
+    WEB_RECEIPT_STATUSES = []
+    WEB_RECEIPT_STATUS_LABELS = {}
+
 
 _FRONTEND_BASE_URL: str = os.getenv("JVA_FRONTEND_BASE_URL", "").rstrip("/")
 
@@ -591,6 +623,119 @@ def _run_job(job_id: str) -> None:
     except Exception as exc:
         (logs_dir / "stderr.txt").write_text(str(exc), encoding="utf-8")
         update_job(job_id, status="failed", error=str(exc), returncode=-1)
+
+
+def _output_dir_for_receipt(receipt_id: str) -> Path:
+    return _REPO_ROOT / "outputs" / receipt_id
+
+
+def _zip_outputs_for_receipt(receipt_id: str) -> Path | None:
+    out_dir = _output_dir_for_receipt(receipt_id)
+    if not out_dir.exists():
+        return None
+    zip_path = out_dir / "result.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for p in out_dir.rglob("*"):
+            if p.is_file() and p.resolve() != zip_path.resolve():
+                zf.write(p, arcname=p.relative_to(out_dir).as_posix())
+    return zip_path
+
+
+def _set_receipt_status_safe(
+    receipt_id: str,
+    status: str,
+    note: str | None = None,
+    error_message: str | None = None,
+    output_dir: str | None = None,
+    result_zip_path: str | None = None,
+) -> None:
+    updates = {"status": status}
+    if note is not None:
+        updates["note"] = note
+    if error_message is not None:
+        updates["errorMessage"] = error_message
+    if output_dir is not None:
+        updates["outputDir"] = output_dir
+    if result_zip_path is not None:
+        updates["resultZipPath"] = result_zip_path
+    update_upload_receipt(receipt_id, **updates)
+
+
+def _run_receipt_analysis(receipt: dict, mode: str = "all_variants") -> dict:
+    receipt_id = str(receipt.get("receiptId", "")).strip()
+    file_path = str(receipt.get("filePath", "")).strip()
+    if not receipt_id:
+        raise ValueError("receiptId が不正です。")
+    if not file_path:
+        raise ValueError("filePath が空です。")
+
+    input_path = resolve_receipt_file_path(file_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"入力動画が見つかりません: {file_path}")
+
+    out_dir = _output_dir_for_receipt(receipt_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        sys.executable,
+        str(_RUN_PY),
+        "--input",
+        str(input_path),
+        "--output-dir",
+        str(out_dir),
+    ]
+    flag_map = {
+        "all_variants": "--all-variants",
+        "analysis": "--analysis",
+        "heatmap": "--heatmap",
+        "vectors": "--vectors",
+        "hud": "--hud",
+        "stickman": "--stickman",
+    }
+    cmd.append(flag_map.get(mode, "--all-variants"))
+
+    logs_dir = out_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    (logs_dir / "command.txt").write_text(" ".join(cmd), encoding="utf-8")
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(_REPO_ROOT),
+    )
+    (logs_dir / "stdout.txt").write_text(result.stdout or "", encoding="utf-8")
+    (logs_dir / "stderr.txt").write_text(result.stderr or "", encoding="utf-8")
+
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "Unknown error").strip()[:2000]
+        raise RuntimeError(err)
+
+    zip_path = _zip_outputs_for_receipt(receipt_id)
+    return {
+        "output_dir": out_dir,
+        "zip_path": zip_path,
+    }
+
+
+def _create_job_from_receipt(receipt: dict, mode: str = "all_variants") -> str:
+    receipt_id = str(receipt.get("receiptId", "")).strip()
+    file_path = str(receipt.get("filePath", "")).strip()
+    if not receipt_id or not file_path:
+        raise ValueError("receiptId または filePath が不正です。")
+
+    src = resolve_receipt_file_path(file_path)
+    if not src.exists():
+        raise FileNotFoundError(f"入力動画が見つかりません: {file_path}")
+
+    job = create_job(height_m=None, mode=mode)
+    dst = Path(job["input_file"])
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    update_job(job["job_id"], status="uploaded")
+    return str(job["job_id"])
 
 
 def _read_video_bytes(path: Path) -> bytes | None:
@@ -3233,10 +3378,6 @@ with tab_history:
                                 use_container_width=True, hide_index=True,
                             )
 
-                                _p11_pd.DataFrame(_p11_pl_rows),
-                                use_container_width=True, hide_index=True,
-                            )
-
             # ── P12. 高度解析指標（Phase 12）─────────────────────────────────────
             with st.expander("📊 P12. 高度解析指標", expanded=False):
                 if not _PHASE12_AVAILABLE:
@@ -4357,6 +4498,321 @@ with tab_import:
 
 with tab_intakes:
     st.header("📨 受付一覧")
+
+    st.subheader("📥 Webアップロード受付一覧")
+    if _UPLOAD_RECEIPTS_AVAILABLE:
+        try:
+            _upload_rows = list_upload_receipts()
+        except Exception as _ur_err:
+            _upload_rows = []
+            st.warning(f"Web受付一覧の読み込みに失敗しました: {_ur_err}")
+
+        if not _upload_rows:
+            st.info("Webアップロード受付データはまだありません。")
+        else:
+            _uwc1, _uwc2 = st.columns([1, 2])
+            with _uwc1:
+                _web_status_options = ["すべて"] + sorted({str(r.get("status", "uploaded")) for r in _upload_rows})
+                _web_status_filter = st.selectbox(
+                    "statusで絞り込み",
+                    options=_web_status_options,
+                    key="web_upload_status_filter",
+                )
+            with _uwc2:
+                _web_query = st.text_input(
+                    "receiptId / name / sns で検索",
+                    value="",
+                    key="web_upload_search",
+                    placeholder="例: JMA-20260514-0001 / 田中 / line_name",
+                ).strip().lower()
+
+            _filtered_web_rows = _upload_rows
+            if _web_status_filter != "すべて":
+                _filtered_web_rows = [r for r in _filtered_web_rows if str(r.get("status", "")) == _web_status_filter]
+            if _web_query:
+                def _matches(_r: dict) -> bool:
+                    _rid = str(_r.get("receiptId", "")).lower()
+                    _name = str(_r.get("name", "")).lower()
+                    _sns = str(_r.get("sns", "")).lower()
+                    return _web_query in _rid or _web_query in _name or _web_query in _sns
+                _filtered_web_rows = [r for r in _filtered_web_rows if _matches(r)]
+
+            _rows_for_df = []
+            for _r in _filtered_web_rows:
+                _raw_path = str(_r.get("filePath", ""))
+                _rid = str(_r.get("receiptId", "")).strip()
+                try:
+                    _fpath = resolve_receipt_file_path(_raw_path)
+                    _exists = _fpath.exists()
+                except Exception:
+                    _fpath = Path(_raw_path)
+                    _exists = False
+
+                _default_out = ""
+                _default_zip = ""
+                if _rid:
+                    try:
+                        _od = resolve_output_dir(_rid)
+                    except Exception:
+                        _od = _output_dir_for_receipt(_rid)
+                    _default_out = str(_od.relative_to(_REPO_ROOT).as_posix()) if _od.exists() else str(_od.relative_to(_REPO_ROOT).as_posix())
+                    _zp = _od / "result.zip"
+                    if _zp.exists():
+                        _default_zip = str(_zp.relative_to(_REPO_ROOT).as_posix())
+
+                _status = str(_r.get("status", "uploaded"))
+                _status_badge = {
+                    "completed": "🟢 completed",
+                    "failed": "🔴 failed",
+                    "needs_resubmission": "🟠 needs_resubmission",
+                }.get(_status, _status)
+
+                _size = int(_r.get("fileSize", 0) or 0)
+                _rows_for_df.append({
+                    "receiptId": _r.get("receiptId", "—"),
+                    "createdAt": _r.get("createdAt", "—"),
+                    "name": _r.get("name", "—"),
+                    "sns": _r.get("sns", "—"),
+                    "event": _r.get("event", "—"),
+                    "originalFilename": _r.get("originalFilename", "—"),
+                    "savedFilename": _r.get("savedFilename", "—"),
+                    "fileSize": _size,
+                    "fileSizeMB": round(_size / (1024 * 1024), 2),
+                    "snsConsent": _r.get("snsConsent", "unknown"),
+                    "status": _status,
+                    "statusView": _status_badge,
+                    "note": _r.get("note", ""),
+                    "errorMessage": _r.get("errorMessage", ""),
+                    "filePath": _raw_path,
+                    "ファイル存在": "✅" if _exists else "❌",
+                    "outputDir": _r.get("outputDir", "") or _default_out,
+                    "resultZipPath": _r.get("resultZipPath", "") or _default_zip,
+                })
+
+            st.caption(f"表示: {len(_rows_for_df)} 件 / 全 {len(_upload_rows)} 件")
+            st.dataframe(
+                pd.DataFrame(_rows_for_df),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("#### 🔧 Web受付操作")
+            _rid_options = [str(r.get("receiptId", "")) for r in _filtered_web_rows if r.get("receiptId")]
+            if _rid_options:
+                _selected_receipt_id = st.selectbox(
+                    "対象受付を選択",
+                    options=_rid_options,
+                    key="web_receipt_target_select",
+                )
+                _target = next((r for r in _upload_rows if str(r.get("receiptId", "")) == _selected_receipt_id), None)
+                if _target:
+                    _target_path_raw = str(_target.get("filePath", ""))
+                    try:
+                        _target_abs = resolve_receipt_file_path(_target_path_raw)
+                        _target_exists = _target_abs.exists()
+                    except Exception:
+                        _target_abs = Path(_target_path_raw)
+                        _target_exists = False
+
+                    st.caption(f"filePath: {_target_path_raw}")
+                    st.caption(f"ファイル存在: {'✅' if _target_exists else '❌'}")
+                    if not _target_exists:
+                        st.warning("入力動画ファイルが見つかりません。解析は実行できません。filePath を確認してください。")
+
+                    _target_output_dir = str(_target.get("outputDir", "")).strip()
+                    _target_result_zip = str(_target.get("resultZipPath", "")).strip()
+                    if not _target_output_dir:
+                        try:
+                            _target_output_dir = (_output_dir_for_receipt(_selected_receipt_id).relative_to(_REPO_ROOT)).as_posix()
+                        except Exception:
+                            _target_output_dir = str(_output_dir_for_receipt(_selected_receipt_id))
+                    if not _target_result_zip:
+                        _tmp_zip = _output_dir_for_receipt(_selected_receipt_id) / "result.zip"
+                        if _tmp_zip.exists():
+                            try:
+                                _target_result_zip = _tmp_zip.relative_to(_REPO_ROOT).as_posix()
+                            except Exception:
+                                _target_result_zip = str(_tmp_zip)
+
+                    st.caption(f"outputDir: {_target_output_dir or '—'}")
+                    st.caption(f"resultZipPath: {_target_result_zip or '—'}")
+
+                    _op_c1, _op_c2 = st.columns(2)
+                    with _op_c1:
+                        _new_web_status = st.selectbox(
+                            "status変更",
+                            options=WEB_RECEIPT_STATUSES,
+                            index=WEB_RECEIPT_STATUSES.index(_target.get("status", "uploaded")) if _target.get("status") in WEB_RECEIPT_STATUSES else 0,
+                            format_func=lambda s: WEB_RECEIPT_STATUS_LABELS.get(s, s),
+                            key=f"web_receipt_status_{_selected_receipt_id}",
+                        )
+                        if st.button("💾 statusを保存", key=f"web_receipt_status_save_{_selected_receipt_id}"):
+                            try:
+                                update_upload_receipt(_selected_receipt_id, status=_new_web_status)
+                                st.success("status を更新しました。")
+                                st.rerun()
+                            except Exception as _ws_err:
+                                st.error(f"status 更新エラー: {_ws_err}")
+
+                    with _op_c2:
+                        _quick1, _quick2, _quick3 = st.columns(3)
+                        with _quick1:
+                            if st.button("確認中", key=f"web_quick_checking_{_selected_receipt_id}"):
+                                update_upload_receipt(_selected_receipt_id, status="checking")
+                                st.rerun()
+                        with _quick2:
+                            if st.button("再投稿依頼", key=f"web_quick_resub_{_selected_receipt_id}"):
+                                update_upload_receipt(_selected_receipt_id, status="needs_resubmission")
+                                st.rerun()
+                        with _quick3:
+                            if st.button("送付済み", key=f"web_quick_delivered_{_selected_receipt_id}"):
+                                update_upload_receipt(_selected_receipt_id, status="delivered")
+                                st.rerun()
+
+                    _edit_note = st.text_area(
+                        "note",
+                        value=str(_target.get("note", "")),
+                        key=f"web_receipt_note_{_selected_receipt_id}",
+                        height=80,
+                        placeholder="例: 被写体が遠すぎる / スマホ縦撮り / 暗い / ブレが大きい",
+                    )
+                    _edit_err = st.text_area(
+                        "errorMessage",
+                        value=str(_target.get("errorMessage", "")),
+                        key=f"web_receipt_error_{_selected_receipt_id}",
+                        height=80,
+                        placeholder="例: 骨格点が十分に検出できない",
+                    )
+                    if st.button("📝 note / errorMessage を保存", key=f"web_receipt_note_save_{_selected_receipt_id}"):
+                        try:
+                            update_upload_receipt(
+                                _selected_receipt_id,
+                                note=_edit_note,
+                                errorMessage=_edit_err,
+                            )
+                            st.success("メモを保存しました。")
+                            st.rerun()
+                        except Exception as _we_err:
+                            st.error(f"保存エラー: {_we_err}")
+
+                    st.markdown("##### ▶ 解析実行")
+                    _run_mode = st.selectbox(
+                        "解析モード",
+                        options=["all_variants", "analysis", "heatmap", "vectors", "hud", "stickman"],
+                        index=0,
+                        key=f"web_receipt_runmode_{_selected_receipt_id}",
+                    )
+
+                    if st.button("🆕 解析ジョブを作成 (jobs/)", key=f"web_receipt_create_job_{_selected_receipt_id}"):
+                        try:
+                            _job_id = _create_job_from_receipt(_target, mode=_run_mode)
+                            _base_note = str(_target.get("note", "")).strip()
+                            _link_note = f"linked_job_id={_job_id}"
+                            _next_note = f"{_base_note}\n{_link_note}".strip() if _base_note else _link_note
+                            update_upload_receipt(
+                                _selected_receipt_id,
+                                status="checking",
+                                note=_next_note,
+                            )
+                            st.success(f"ジョブ作成完了: {_job_id}")
+                            st.rerun()
+                        except Exception as _cj_err:
+                            st.error(f"ジョブ作成エラー: {_cj_err}")
+
+                    _ra1, _ra2 = st.columns([1, 1])
+                    with _ra1:
+                        if st.button("🚀 解析を実行", key=f"web_receipt_run_{_selected_receipt_id}", type="primary"):
+                            try:
+                                if not _target_exists:
+                                    raise FileNotFoundError(f"入力動画が見つかりません: {_target_path_raw}")
+                                _set_receipt_status_safe(_selected_receipt_id, "processing", error_message="")
+                                with st.spinner("解析中..."):
+                                    _res = _run_receipt_analysis(_target, mode=_run_mode)
+                                _out_dir = _res.get("output_dir")
+                                _zip_path = _res.get("zip_path")
+                                _out_str = ""
+                                _zip_str = ""
+                                if isinstance(_out_dir, Path):
+                                    try:
+                                        _out_str = _out_dir.relative_to(_REPO_ROOT).as_posix()
+                                    except Exception:
+                                        _out_str = str(_out_dir)
+                                if isinstance(_zip_path, Path):
+                                    try:
+                                        _zip_str = _zip_path.relative_to(_REPO_ROOT).as_posix()
+                                    except Exception:
+                                        _zip_str = str(_zip_path)
+
+                                _set_receipt_status_safe(
+                                    _selected_receipt_id,
+                                    "completed",
+                                    error_message="",
+                                    output_dir=_out_str,
+                                    result_zip_path=_zip_str,
+                                )
+                                st.success("✅ 解析完了")
+                                if _res.get("zip_path"):
+                                    st.info(f"ZIP生成: {_res['zip_path']}")
+                                st.rerun()
+                            except Exception as _run_err:
+                                _set_receipt_status_safe(
+                                    _selected_receipt_id,
+                                    "failed",
+                                    error_message=str(_run_err)[:2000],
+                                )
+                                st.error(f"解析エラー: {_run_err}")
+
+                    with _ra2:
+                        if st.button("🔄 成果物ZIPを再生成", key=f"web_receipt_rezip_{_selected_receipt_id}"):
+                            try:
+                                _new_zip = _zip_outputs_for_receipt(_selected_receipt_id)
+                                if _new_zip and _new_zip.exists():
+                                    try:
+                                        _zip_rel = _new_zip.relative_to(_REPO_ROOT).as_posix()
+                                    except Exception:
+                                        _zip_rel = str(_new_zip)
+                                    try:
+                                        _out_rel = _new_zip.parent.relative_to(_REPO_ROOT).as_posix()
+                                    except Exception:
+                                        _out_rel = str(_new_zip.parent)
+                                    update_upload_receipt(
+                                        _selected_receipt_id,
+                                        outputDir=_out_rel,
+                                        resultZipPath=_zip_rel,
+                                    )
+                                    st.success("ZIPを再生成しました。")
+                                else:
+                                    st.warning("出力フォルダが見つからないため、ZIPを生成できませんでした。")
+                            except Exception as _rz_err:
+                                update_upload_receipt(
+                                    _selected_receipt_id,
+                                    errorMessage=str(_rz_err)[:2000],
+                                )
+                                st.error(f"ZIP生成エラー: {_rz_err}")
+
+                        _zip_path = _output_dir_for_receipt(_selected_receipt_id) / "result.zip"
+                        if _zip_path.exists():
+                            _zip_bytes = _read_video_bytes(_zip_path)
+                            if _zip_bytes:
+                                st.download_button(
+                                    "⬇ 成果物ZIPをダウンロード",
+                                    data=_zip_bytes,
+                                    file_name=f"{_selected_receipt_id}_result.zip",
+                                    mime="application/zip",
+                                    key=f"web_receipt_dl_zip_{_selected_receipt_id}",
+                                )
+                        else:
+                            st.info("result.zip: 未生成")
+
+                    if _target_exists and _target_abs.suffix.lower() in {".mp4", ".mov"}:
+                        _video_bin = _read_video_bytes(_target_abs)
+                        if _video_bin:
+                            with st.expander("📹 受付動画を確認", expanded=False):
+                                st.video(_video_bin)
+    else:
+        st.caption("upload_receipts モジュールが見つからないため、Web受付一覧は非表示です。")
+
+    st.divider()
 
     if not _INTAKE_AVAILABLE:
         st.error("`src/intake_manager.py` が読み込めません。インストールを確認してください。")

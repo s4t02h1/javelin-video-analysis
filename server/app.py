@@ -101,6 +101,14 @@ try:
 except ImportError as _ie:
     logger.warning("Feedback API ルーターの読み込みに失敗しました: %s", _ie)
 
+# ── Upload API ルーター（β版動画受付） ───────────────────────────────────────
+try:
+    from server.upload_api import upload_router
+    app.include_router(upload_router)
+    logger.info("Upload API ルーターを読み込みました。")
+except ImportError as _ie:
+    logger.warning("Upload API ルーターの読み込みに失敗しました: %s", _ie)
+
 
 # ── S3 ユーティリティ ────────────────────────────────────────────────────────
 

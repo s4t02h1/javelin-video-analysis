@@ -287,4 +287,221 @@ Issue・Pull Request を歓迎します。
 
 ---
 
+## 📥 β版Web動画受付 API 仕様
+
+### POST `/api/upload`
+
+- 役割: β版Webappからの動画受付
+- Content-Type: `multipart/form-data`
+- 受信フィールド:
+  - `name` (必須)
+  - `sns` (必須)
+  - `event` (任意, 既定: `javelin`)
+  - `snsConsent` (任意)
+  - `agree` (必須, `true` 必須)
+  - `file` (必須)
+- 対応拡張子: `.mp4`, `.mov`, `.MOV`（内部判定は小文字化）
+- サイズ上限: 300MB（`JVA_MAX_UPLOAD_MB` で変更可）
+- 成功レスポンス例:
+
+```json
+{
+  "ok": true,
+  "receiptId": "JMA-20260514-0001"
+}
+```
+
+### GET `/api/upload-receipts`（管理者用）
+
+- 役割: 受付一覧の確認（個人情報を含むため管理者専用）
+- 必須ヘッダー: `X-Admin-Token: <token>`
+- 照合先環境変数: `JVA_ADMIN_TOKEN`
+- トークン不一致: `403 forbidden`
+- `JVA_ADMIN_TOKEN` 未設定: `503`（管理者トークン未設定エラー）
+
+開発時の確認例:
+
+```bash
+curl -H "X-Admin-Token: dev-admin-token" http://localhost:8000/api/upload-receipts
+```
+
+環境変数設定例（PowerShell）:
+
+```powershell
+$env:JVA_ADMIN_TOKEN="dev-admin-token"
+uvicorn server.app:app --reload --port 8000
+```
+
+---
+
+## 🗂️ 動画保存・受付データ保存
+
+- 動画保存先: `uploads/YYYYMMDD/`
+- 受付データ保存先: `data/upload_receipts/receipts.json`
+- `receipts.json` の `filePath` は**相対パス**で保存されます。
+  - 例: `uploads/20260514/JMA-20260514-0001_xxxxx.mov`
+- 実ファイル操作時は、サーバー側でリポジトリルート基準に絶対パスへ安全に解決します。
+
+---
+
+## ✅ β版公開前の動作確認手順（Web受付）
+
+1. バックエンド起動
+
+```bash
+uvicorn server.app:app --reload --port 8000
+```
+
+2. フロントエンド起動
+
+```bash
+cd frontend
+npm run dev
+```
+
+3. Webアップロード確認
+
+- `/upload` から `.mp4/.mov/.MOV` を投稿できる
+- `receiptId` が `JMA-YYYYMMDD-0001` 形式で発行される
+- `uploads/YYYYMMDD/` に動画が保存される
+- `data/upload_receipts/receipts.json` に受付データが保存される
+
+4. 受付一覧 API 保護確認
+
+- `X-Admin-Token` なしで `GET /api/upload-receipts` → 403 または 503（未設定時）
+- 正しい `X-Admin-Token` で `GET /api/upload-receipts` → 200
+
+5. 管理画面確認
+
+- `streamlit run admin_app.py` で管理画面起動
+- 「📨 受付一覧」内「📥 Webアップロード受付一覧」に反映される
+- `status` 絞り込み、`receiptId/name/sns` 検索が機能する
+- ファイル存在確認列が正しく表示される
+
+---
+
+## ▶ Web受付から解析実行までの手順（β版運用）
+
+1. ユーザーが `/upload` から動画を提出し、`receiptId` が発行される
+2. 管理画面 `admin_app.py` の「📨 受付一覧 > 📥 Webアップロード受付一覧」で受付内容を確認する
+3. 受付動画を目視確認し、必要に応じて `status` を `checking` に変更する
+4. 問題なければ「🚀 解析を実行」を押して既存 `run.py` フローへ投入する
+5. 解析成功時は `outputs/{receiptId}/` に成果物が生成され、`result.zip` が作成される
+6. 管理画面から `result.zip` をダウンロードして納品する
+7. 納品完了後は `status=delivered` へ更新する
+
+補足:
+
+- 任意で「🆕 解析ジョブを作成 (jobs/)」を使うと、既存 `jobs/` ベース運用にも接続可能
+- `filePath` は相対パス保存のため、管理画面側で安全に絶対パス解決して処理する
+
+---
+
+## 🧭 Web受付ステータス定義
+
+- `uploaded`: 受付済み
+- `checking`: 確認中
+- `processing`: 解析中
+- `completed`: 解析完了
+- `failed`: 解析失敗
+- `needs_resubmission`: 再投稿依頼
+- `delivered`: 送付済み
+
+解析実行時の自動遷移:
+
+- 実行開始時に `processing`
+- 成功時に `completed`
+- 失敗時に `failed`（`errorMessage` に理由記録）
+- 再投稿依頼へ回す場合は管理画面で `needs_resubmission` を手動設定
+- 成果物送付後は管理画面で `delivered` を手動設定（`deliveredAt` を記録）
+
+---
+
+## 📦 成果物保存先（Web受付）
+
+Web受付の成果物は `receiptId` 単位で分離して保存します。
+
+推奨構成（既存処理の出力名は保持しつつ、最終的に集約）:
+
+```text
+outputs/
+  {receiptId}/
+    01_report.pdf
+    02_summary.png
+    03_graphs/
+    04_data.csv
+    05_analyzed_video.mp4
+    result.zip
+```
+
+```text
+outputs/
+  {receiptId}/
+    ... run.py 生成物 ...
+    logs/
+      command.txt
+      stdout.txt
+      stderr.txt
+    result.zip
+```
+
+例:
+
+```text
+outputs/JMA-20260514-0004/
+  05_analyzed_video.mp4
+  report.pdf
+  graphs/
+  result.zip
+```
+
+`data/upload_receipts/receipts.json` の各受付には、必要に応じて以下が更新されます。
+
+- `outputDir`: 成果物ディレクトリ（相対パス）
+- `resultZipPath`: ZIPファイル（相対パス）
+- `completedAt`: 解析完了時刻
+- `deliveredAt`: 送付完了時刻
+
+---
+
+## ⚠️ 解析失敗時の対応
+
+1. 管理画面で `errorMessage` を確認
+2. 必要に応じて `note` に原因を記録
+3. 再解析が難しい場合は `needs_resubmission` へ変更
+4. 再投稿依頼時は撮影条件の改善点を明記
+
+記録例:
+
+- 被写体が遠すぎる
+- スマホ縦撮り
+- 暗い / 逆光
+- ブレが大きい
+- 身体が画面外に出ている
+- 骨格点が十分に検出できない
+- 対応外の動画形式
+
+---
+
+## 🔁 再投稿依頼に回す手順
+
+1. 対象受付を選択
+2. `status` を `needs_resubmission` に変更
+3. `note` または `errorMessage` に再投稿理由を記載
+4. 公式LINEで再投稿ガイドを案内
+
+---
+
+## ✅ β版公開前チェック（運用）
+
+- Web受付後に管理画面一覧へ反映される
+- 受付動画の存在確認ができる
+- `status` 更新と `note/errorMessage` 保存ができる
+- 解析実行で `processing -> completed/failed` が反映される
+- `outputs/{receiptId}/result.zip` が生成される
+- `result.zip` を管理画面からダウンロードできる
+- 解析不能ケースを `needs_resubmission` へ回せる
+
+---
+
 > **Note**: β版サービスで使用しているレポート生成・ユーザー管理・納品フロー・独自解析ロジック・管理画面・S3 連携・課金処理等は、本リポジトリには含まれていません。

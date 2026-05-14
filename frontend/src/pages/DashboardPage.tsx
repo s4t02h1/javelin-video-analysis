@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { DashboardManifest } from '../types'
-import { fetchDashboard } from '../lib/api'
+import { DashboardApiError, fetchDashboard } from '../lib/api'
 import Header from '../components/Header'
 import NoticeBanner from '../components/NoticeBanner'
 import VideoSection from '../components/VideoSection'
@@ -25,26 +25,37 @@ export default function DashboardPage() {
     }
     let cancelled = false
     setLoading(true)
-    fetchDashboard(token).then((result) => {
-      if (cancelled) return
-      if (result.ok) {
-        setManifest(result.data)
+
+    const load = async () => {
+      try {
+        const data = await fetchDashboard(token)
+        if (cancelled) return
+        setManifest(data)
         setLoading(false)
-      } else {
-        if (result.error.type === 'expired') {
-          navigate('/expired', { replace: true })
-        } else if (result.error.type === 'not_found') {
-          navigate('/not-found', { replace: true })
+      } catch (error) {
+        if (cancelled) return
+        if (error instanceof DashboardApiError) {
+          if (error.type === 'expired') {
+            navigate('/expired', { replace: true })
+            return
+          }
+          if (error.type === 'not_found') {
+            navigate('/not-found', { replace: true })
+            return
+          }
+          if (error.type === 'network') {
+            setErrorMsg('ネットワークエラーが発生しました。通信状況を確認してください。')
+          } else {
+            setErrorMsg(`エラー: ${error.detail ?? 'サーバーエラー'}`)
+          }
         } else {
-          setErrorMsg(
-            result.error.type === 'network'
-              ? 'ネットワークエラーが発生しました。通信状況を確認してください。'
-              : `エラー: ${(result.error as { detail?: string }).detail ?? 'サーバーエラー'}`,
-          )
-          setLoading(false)
+          setErrorMsg('不明なエラーが発生しました。')
         }
+        setLoading(false)
       }
-    })
+    }
+
+    void load()
     return () => { cancelled = true }
   }, [token, navigate])
 
