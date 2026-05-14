@@ -19,6 +19,39 @@
 
 ---
 
+## 1-B. Web受付（β版動画アップロード導線）
+
+- [ ] `.env` が Git に含まれていないことを確認した
+- [ ] `uploads/` `data/` `outputs/` が Git に追跡されていないことを確認した（`git ls-files uploads/ data/ outputs/` が空を返す）
+- [ ] `frontend/node_modules/` `frontend/dist/` が Git に追跡されていないことを確認した
+- [ ] `JVA_ADMIN_TOKEN` を `.env` に設定し、FastAPI を起動した
+- [ ] `/upload` ページが表示される（frontend 起動済み）
+- [ ] 正常な mp4 をアップロードして `receiptId` が発行される（JMA-YYYYMMDD-NNNN 形式）
+- [ ] 正常な MOV をアップロードして受付できる
+- [ ] 日本語ファイル名・空白入りファイル名でもアップロードできる（savedFilename は UUID ベースで保存）
+- [ ] 非対応形式（.avi 等）でエラーメッセージが表示される
+- [ ] 注意事項に未同意のままでは送信できない
+- [ ] SNS掲載可否を選択しないと送信できない（クライアント側で弾く）
+- [ ] 300MB 超の動画でサイズ超過エラーが表示される
+- [ ] `uploads/YYYYMMDD/` に動画が保存されている
+- [ ] `data/upload_receipts/receipts.json` に受付データが保存されている
+- [ ] `filePath` が相対パスで保存されている（`uploads/YYYYMMDD/...` 形式）
+- [ ] `status` が `uploaded` で保存されている
+- [ ] `name` / `sns` / `event` / `snsConsent` が正しく保存されている
+- [ ] `GET /api/upload-receipts`（トークンなし）が 403 または 503 を返す
+- [ ] `GET /api/upload-receipts`（正しい X-Admin-Token）が 200 を返す
+- [ ] 管理画面「📨 受付一覧 > 📥 Webアップロード受付一覧」にアップロードが反映される
+- [ ] ファイル存在確認列が ✅ を表示する
+- [ ] `status` 変更・クイックボタンが正常に動作する
+- [ ] `note` / `errorMessage` の編集・保存ができる
+- [ ] 「🚀 解析を実行」が動作し `outputs/{receiptId}/` に成果物が生成される
+- [ ] `result.zip` が生成される
+- [ ] 管理画面から `result.zip` をダウンロードできる
+- [ ] 解析失敗時に管理画面がクラッシュせず `failed` ステータスとエラー内容が表示される
+- [ ] 他の受付の成果物と混在しないことを `outputs/` ディレクトリ構造で確認した
+
+---
+
 ## 2. フォーム・受付
 
 - [ ] β版申込フォーム（Google フォームまたは同等）が作成されている

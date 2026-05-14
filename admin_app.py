@@ -4658,16 +4658,25 @@ with tab_intakes:
                         _quick1, _quick2, _quick3 = st.columns(3)
                         with _quick1:
                             if st.button("確認中", key=f"web_quick_checking_{_selected_receipt_id}"):
-                                update_upload_receipt(_selected_receipt_id, status="checking")
-                                st.rerun()
+                                try:
+                                    update_upload_receipt(_selected_receipt_id, status="checking")
+                                    st.rerun()
+                                except Exception as _q1_err:
+                                    st.error(f"更新エラー: {_q1_err}")
                         with _quick2:
                             if st.button("再投稿依頼", key=f"web_quick_resub_{_selected_receipt_id}"):
-                                update_upload_receipt(_selected_receipt_id, status="needs_resubmission")
-                                st.rerun()
+                                try:
+                                    update_upload_receipt(_selected_receipt_id, status="needs_resubmission")
+                                    st.rerun()
+                                except Exception as _q2_err:
+                                    st.error(f"更新エラー: {_q2_err}")
                         with _quick3:
                             if st.button("送付済み", key=f"web_quick_delivered_{_selected_receipt_id}"):
-                                update_upload_receipt(_selected_receipt_id, status="delivered")
-                                st.rerun()
+                                try:
+                                    update_upload_receipt(_selected_receipt_id, status="delivered")
+                                    st.rerun()
+                                except Exception as _q3_err:
+                                    st.error(f"更新エラー: {_q3_err}")
 
                     _edit_note = st.text_area(
                         "note",

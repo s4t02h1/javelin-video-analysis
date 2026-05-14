@@ -50,6 +50,10 @@ export default function UploadPage() {
       setError('動画ファイルを選択してください');
       return;
     }
+    if (!form.snsConsent) {
+      setError('SNS掲載可否を選択してください');
+      return;
+    }
     if (!form.agree) {
       setError('注意事項への同意が必要です');
       return;

@@ -344,6 +344,61 @@ uvicorn server.app:app --reload --port 8000
 
 ---
 
+## 🔑 本番環境変数の設定（LINE誘導前に必須）
+
+### バックエンド（`.env`）
+
+```bash
+cp .env.example .env
+```
+
+`.env` を編集して以下を設定してください：
+
+| 変数名 | 説明 | 設定例 |
+|---|---|---|
+| `JVA_ADMIN_TOKEN` | 管理API保護トークン（**必須**） | `python -c "import secrets; print(secrets.token_urlsafe(32))"`の出力値 |
+| `JVA_MAX_UPLOAD_MB` | アップロード上限（任意、デフォルト300） | `300` |
+
+> ⚠️ `JVA_ADMIN_TOKEN` を空のまま起動すると `/api/upload-receipts` が 503 を返します。
+
+### フロントエンド（`frontend/.env.local`）
+
+```bash
+cd frontend
+cp .env.example .env.local
+```
+
+`frontend/.env.local` を編集：
+
+```env
+# ローカル確認時
+VITE_API_BASE_URL=http://localhost:8000
+
+# 本番（例: Tailscale Serve 経由でLINEユーザーにも届く場合）
+VITE_API_BASE_URL=https://<PC名>.<tailnet名>.ts.net
+```
+
+### LINE誘導URL
+
+LINEユーザーに共有するアップロードページのURLは以下の形式です：
+
+```
+http://localhost:5173/upload              # ローカル確認用
+https://<PC名>.<tailnet名>.ts.net/upload  # Tailscale Serve 経由（β版本番）
+```
+
+フロントエンドをビルドして FastAPI から静的配信する場合：
+
+```bash
+cd frontend
+npm run build
+# dist/ が生成される → FastAPI の StaticFiles マウントまたは nginx で配信
+```
+
+> **確認ポイント**: LINEに貼るURL の `/upload` が正しく表示されるか、スマートフォンの実機ブラウザで開いて確認してください。
+
+---
+
 ## ✅ β版公開前の動作確認手順（Web受付）
 
 1. バックエンド起動
