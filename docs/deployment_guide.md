@@ -129,10 +129,92 @@ docker compose down -v
 | `JVA_ENV` | `local` | 実行環境（local / staging / production） |
 | `JVA_DATA_DIR` | `data` | データディレクトリ |
 | `JVA_LOG_DIR` | `logs` | ログディレクトリ |
+| `JVA_ADMIN_TOKEN` | `""` | `GET /api/upload-receipts` を保護する管理者トークン |
+| `JVA_MAX_UPLOAD_MB` | `300` | Web受付のアップロード上限サイズ（MB） |
 | `JVA_API_KEY` | `""` | API 認証キー（本番では必須） |
 | `JVA_BUCKET` | `your-bucket-name` | S3 バケット名 |
 | `JVA_WORKER_POLL_INTERVAL_SECONDS` | `5` | ワーカーポーリング間隔（秒） |
 | `LINE_WEBHOOK_ENABLED` | `false` | LINE Webhook の有効化 |
+
+フロントエンド側は `frontend/.env.local` またはデプロイ先の環境変数で `VITE_API_BASE_URL` を設定してください。
+この値は `/upload` 画面から送信される API リクエストの送信先になります。
+
+---
+
+## 本番デプロイ前チェック（Web受付導線）
+
+ローカルで確認済みの以下の導線を、本番URLでも再現できることをリリース前に確認してください。
+
+```text
+/upload → 動画アップロード → receiptId 発行 → 管理画面で受付一覧確認
+→ 管理画面から解析実行 → outputs/{receiptId}/ 生成 → result.zip ダウンロード
+```
+
+### 1. 本番環境変数
+
+バックエンド `.env`:
+
+```env
+JVA_ENV=production
+JVA_ADMIN_TOKEN=<32文字以上のランダム文字列>
+JVA_MAX_UPLOAD_MB=300
+```
+
+生成例:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+フロントエンド `frontend/.env.local` またはホスティング環境:
+
+```env
+VITE_API_BASE_URL=https://<your-api-domain>
+```
+
+確認ポイント:
+
+- `JVA_ADMIN_TOKEN` が未設定だと `/api/upload-receipts` は `503` を返す
+- `VITE_API_BASE_URL` はブラウザから到達できる FastAPI の本番URLを指す
+- LINE で案内する URL は `https://<your-frontend-domain>/upload` を使用する
+
+### 2. API保護確認
+
+本番反映後に以下を確認:
+
+```bash
+curl https://<your-api-domain>/api/upload-receipts
+# 期待値: 403 または 503
+
+curl -H "X-Admin-Token: <JVA_ADMIN_TOKEN>" https://<your-api-domain>/api/upload-receipts
+# 期待値: 200
+```
+
+### 3. スマホ実機確認
+
+- iPhone / Android の実機ブラウザで `https://<your-frontend-domain>/upload` が表示される
+- フォーム送信後に `receiptId` が表示される
+- mp4 / MOV の両方で受付できる
+- 日本語ファイル名 / 空白入りファイル名でも受付できる
+
+### 4. 管理画面からの運用確認
+
+- 管理画面で「📨 受付一覧 > 📥 Webアップロード受付一覧」に対象受付が表示される
+- `filePath` が `uploads/YYYYMMDD/...` の相対パスで保存されている
+- 「🚀 解析を実行」で `outputs/{receiptId}/` が作成される
+- `result.zip` が生成され、管理画面からダウンロードできる
+
+### 5. Git管理除外の確認
+
+デプロイ前に以下が Git へ入っていないことを確認:
+
+```bash
+git ls-files .env uploads/ outputs/ data/
+git ls-files frontend/node_modules/ frontend/dist/
+git ls-files "*.mp4" "*.mov" "*.MOV" "*.zip" "*.pdf"
+```
+
+期待値: いずれも本番データ・秘密情報・生成物は出力されないこと。
 
 ---
 
